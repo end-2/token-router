@@ -60,6 +60,7 @@ func New(cfg config.RateLimit) (_ *Limiter, err error) {
 	if err := d.Validate(); err != nil {
 		return nil, err
 	}
+
 	if err := os.MkdirAll(d.DataDir, 0700); err != nil {
 		return nil, fmt.Errorf("create distributed data directory: %w", bucket.ErrUnavailable)
 	}
@@ -73,10 +74,12 @@ func New(cfg config.RateLimit) (_ *Limiter, err error) {
 			err = errors.Join(err, store.Close())
 		}
 	}()
+
 	peers := slices.Clone(d.Peers)
 	slices.Sort(peers)
 	digest := sha256.Sum256([]byte(strings.Join(peers, "\n")))
 	cluster := hex.EncodeToString(digest[:])
+
 	// Persist identity under the same file lock as the Raft state. Restarting a
 	// data directory with another identity or voter set cannot bootstrap safely.
 	identity := []byte(d.Address + "\n" + cluster)
@@ -90,10 +93,12 @@ func New(cfg config.RateLimit) (_ *Limiter, err error) {
 	if err := store.Set([]byte("token-router-identity"), identity); err != nil {
 		return nil, fmt.Errorf("persist distributed identity: %w", bucket.ErrUnavailable)
 	}
+
 	snapshots, err := raft.NewFileSnapshotStore(d.DataDir, 2, io.Discard)
 	if err != nil {
 		return nil, fmt.Errorf("open distributed snapshots: %w", bucket.ErrUnavailable)
 	}
+
 	stream := newAdminStream(d.Address, d.Token, cluster, peers)
 	transport := raft.NewNetworkTransport(stream, 3, d.RequestTimeout, io.Discard)
 	defer func() {
@@ -101,6 +106,7 @@ func New(cfg config.RateLimit) (_ *Limiter, err error) {
 			err = errors.Join(err, transport.Close())
 		}
 	}()
+
 	raftConfig := raft.DefaultConfig()
 	raftConfig.LocalID = raft.ServerID(d.Address)
 	raftConfig.Logger = hclog.NewNullLogger()
@@ -118,10 +124,12 @@ func New(cfg config.RateLimit) (_ *Limiter, err error) {
 			return nil, fmt.Errorf("bootstrap distributed cluster: %w", bucket.ErrUnavailable)
 		}
 	}
+
 	node, err := raft.NewRaft(raftConfig, &distributedFSM{}, store, store, snapshots, transport)
 	if err != nil {
 		return nil, fmt.Errorf("start distributed node: %w", bucket.ErrUnavailable)
 	}
+
 	l := &Limiter{limits: (config.Config{RateLimit: cfg}).Mutable().RateLimit,
 		raft: node, store: store, transport: transport, stream: stream, timeout: d.RequestTimeout,
 		queue: make(chan distributedCall, 128), done: make(chan struct{}),
@@ -162,16 +170,19 @@ func (l *Limiter) submit(ctx context.Context, operation string, tokens int64) (b
 	if l.stream.ctx.Err() != nil {
 		return bucket.Decision{}, bucket.ErrClosed
 	}
+
 	l.mu.RLock()
 	proposal := distributedProposal{Account: bucket.AccountKey(ctx), Operation: operation, Tokens: tokens, Limits: l.limits}
 	l.mu.RUnlock()
 	if operation == "usage" && (tokens == 0 || proposal.Limits.TokensPerSecond == 0) {
 		return bucket.Decision{}, nil
 	}
+
 	ctx, cancel := context.WithTimeout(ctx, l.timeout)
 	defer cancel()
 	stop := context.AfterFunc(l.stream.ctx, cancel) //nolint:contextcheck // The stream lifetime cancels the context derived from the caller above.
 	defer stop()
+
 	if l.raft.State() == raft.Leader {
 		return l.apply(ctx, proposal)
 	}
@@ -179,10 +190,12 @@ func (l *Limiter) submit(ctx context.Context, operation string, tokens int64) (b
 	if leader == "" || !l.stream.peers[string(leader)] || string(leader) == l.stream.address {
 		return bucket.Decision{}, bucket.ErrUnavailable
 	}
+
 	data, err := json.Marshal(proposal)
 	if err != nil {
 		return bucket.Decision{}, bucket.ErrUnavailable
 	}
+
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://"+string(leader)+distributedPath+"apply", bytes.NewReader(data))
 	if err != nil {
 		return bucket.Decision{}, bucket.ErrUnavailable
@@ -191,6 +204,7 @@ func (l *Limiter) submit(ctx context.Context, operation string, tokens int64) (b
 	// committed, so resubmitting would debit the same request or usage twice.
 	l.stream.headers(request)
 	request.Header.Set("Content-Type", "application/json")
+
 	response, err := l.client.Do(request)
 	if err != nil {
 		return bucket.Decision{}, distributedError(ctx)
@@ -202,6 +216,7 @@ func (l *Limiter) submit(ctx context.Context, operation string, tokens int64) (b
 	if response.StatusCode != http.StatusOK {
 		return bucket.Decision{}, bucket.ErrUnavailable
 	}
+
 	var decision bucket.Decision
 	if err := json.NewDecoder(io.LimitReader(response.Body, 4096)).Decode(&decision); err != nil || decision.RetryAfter < 0 {
 		return bucket.Decision{}, bucket.ErrUnavailable
@@ -225,6 +240,7 @@ func (l *Limiter) apply(ctx context.Context, proposal distributedProposal) (buck
 	case <-l.stream.ctx.Done():
 		return bucket.Decision{}, bucket.ErrClosed
 	}
+
 	select {
 	case result := <-call.result:
 		return result.decision, result.err
@@ -252,9 +268,11 @@ func (l *Limiter) commit(ctx context.Context, proposal distributedProposal) (buc
 	if err := ctx.Err(); err != nil {
 		return bucket.Decision{}, err
 	}
+
 	l.mu.RLock()
 	limits := l.limits
 	l.mu.RUnlock()
+
 	// Identity settings are local admission policy. Already admitted streams keep
 	// their original account even if that policy changes while streaming.
 	if proposal.Operation == "usage" {
@@ -263,16 +281,19 @@ func (l *Limiter) commit(ctx context.Context, proposal distributedProposal) (buc
 	if proposal.Limits != limits || l.raft.State() != raft.Leader {
 		return bucket.Decision{}, bucket.ErrUnavailable
 	}
+
 	command := distributedCommand{distributedProposal: proposal, Now: time.Now().UnixNano()}
 	data, err := json.Marshal(command)
 	if err != nil {
 		return bucket.Decision{}, bucket.ErrUnavailable
 	}
+
 	deadline, _ := ctx.Deadline()
 	remaining := time.Until(deadline)
 	if remaining <= 0 {
 		return bucket.Decision{}, context.DeadlineExceeded
 	}
+
 	// Apply's timeout only bounds enqueueing. The caller's context separately
 	// bounds its wait; leadership loss or Shutdown releases this single worker.
 	future := l.raft.Apply(data, remaining)
@@ -297,6 +318,7 @@ func (l *Limiter) serveApply(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
+
 	r.Body = http.MaxBytesReader(w, r.Body, 8192)
 	var proposal distributedProposal
 	decoder := json.NewDecoder(r.Body)
@@ -314,6 +336,7 @@ func (l *Limiter) serveApply(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+
 	ctx, cancel := context.WithTimeout(r.Context(), l.timeout)
 	defer cancel()
 	decision, err := l.apply(ctx, proposal)
@@ -321,6 +344,7 @@ func (l *Limiter) serveApply(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "rate limiter unavailable", http.StatusServiceUnavailable)
 		return
 	}
+
 	w.Header().Set("Content-Type", "application/json")
 	// A failed response cannot undo a committed operation and must not be retried.
 	if err := json.NewEncoder(w).Encode(decision); err != nil {

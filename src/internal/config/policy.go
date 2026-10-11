@@ -71,6 +71,7 @@ func DecodePolicy(data []byte, base PolicyConfig) (PolicyConfig, error) {
 	if len(data) > MaxPolicyBytes {
 		return PolicyConfig{}, errors.New("policy configuration exceeds size limit")
 	}
+
 	c := base.Clone()
 	if err := decodeYAMLValue(data, &c, yaml.MappingNode); err != nil {
 		return PolicyConfig{}, err
@@ -84,6 +85,7 @@ func (c PolicyConfig) MarshalJSON() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	var value map[string]any
 	if err := yaml.Unmarshal(data, &value); err != nil {
 		return nil, err
@@ -97,11 +99,13 @@ func ReadPolicyFile(path string) ([]byte, error) {
 	if err != nil {
 		return nil, errors.New("cannot read policy configuration file")
 	}
+
 	data, readErr := io.ReadAll(io.LimitReader(f, MaxPolicyBytes+1))
 	closeErr := f.Close()
 	if readErr != nil || closeErr != nil {
 		return nil, errors.New("cannot read policy configuration file")
 	}
+
 	if len(data) > MaxPolicyBytes {
 		return nil, errors.New("policy configuration exceeds size limit")
 	}

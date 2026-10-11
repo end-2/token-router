@@ -24,10 +24,12 @@ func TestDistributedServerAdminAndAccounts(t *testing.T) {
 		}
 		return addr
 	}
+
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer upstream.Close()
+
 	cfg := config.Defaults()
 	cfg.Server.Address, cfg.Admin.Address = address(), address()
 	cfg.Admin.Enabled = true
@@ -37,6 +39,7 @@ func TestDistributedServerAdminAndAccounts(t *testing.T) {
 	cfg.RateLimit.Memory.Distributed = config.Distributed{Enabled: true, Address: cfg.Admin.Address,
 		Peers: []string{cfg.Admin.Address}, DataDir: t.TempDir(), Token: "cluster-secret", RequestTimeout: time.Second}
 	cfg.Telemetry.Metrics.Enabled, cfg.Telemetry.Logs.Enabled = false, false
+
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	go func() { done <- Run(ctx, cfg) }()
@@ -51,6 +54,7 @@ func TestDistributedServerAdminAndAccounts(t *testing.T) {
 			t.Error("distributed app did not shut down")
 		}
 	})
+
 	client := &http.Client{Timeout: 2 * time.Second}
 	defer client.CloseIdleConnections()
 	request := func(addr, method, path, auth string) int {
@@ -60,6 +64,7 @@ func TestDistributedServerAdminAndAccounts(t *testing.T) {
 			t.Fatal(err)
 		}
 		r.Header.Set("Authorization", auth)
+
 		response, err := client.Do(r)
 		if err != nil {
 			return 0
@@ -69,6 +74,7 @@ func TestDistributedServerAdminAndAccounts(t *testing.T) {
 		}
 		return response.StatusCode
 	}
+
 	deadline := time.Now().Add(8 * time.Second)
 	for {
 		status := request(cfg.Server.Address, "GET", "/v1/models", accountBasic("alice", "pw"))
@@ -80,6 +86,7 @@ func TestDistributedServerAdminAndAccounts(t *testing.T) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
+
 	for _, tc := range []struct {
 		address, method, path, auth string
 		status                      int

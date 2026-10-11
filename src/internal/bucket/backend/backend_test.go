@@ -21,14 +21,17 @@ func TestLimiterCancellationAndClose(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			l := tt.new()
+
 			ctx, cancel := context.WithCancel(context.Background())
 			cancel()
 			if decision, err := l.Allow(ctx); !errors.Is(err, context.Canceled) || decision.Allowed {
 				t.Fatalf("canceled Allow = %+v, %v", decision, err)
 			}
+
 			if decision, err := l.Allow(context.Background()); err != nil || !decision.Allowed {
 				t.Fatalf("canceled request consumed capacity: %+v, %v", decision, err)
 			}
+
 			for range 2 {
 				if err := l.Close(); err != nil {
 					t.Fatal(err)
@@ -77,6 +80,7 @@ func TestNewConfiguration(t *testing.T) {
 			}
 		})
 	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if _, err := New(ctx, config.RateLimit{}); !errors.Is(err, context.Canceled) {

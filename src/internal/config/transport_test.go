@@ -24,14 +24,17 @@ func TestTransportLoadPrecedence(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "config.yaml")
 			writeConfig(t, path, "policy:\n  file: policy.yaml\ntransport:\n  max_conns_per_host: 11\n  tls_handshake_timeout: 3s\n")
 			writeConfig(t, filepath.Join(filepath.Dir(path), "policy.yaml"), "upstream:\n  request_timeout: 2s\n")
+
 			cfg, err := Load(Options{Path: path, LookupEnv: lookup(test.env), Overrides: test.overrides})
 			if err != nil {
 				t.Fatal(err)
 			}
+
 			if cfg.Transport.MaxConnsPerHost != test.want || cfg.Transport.TLSHandshakeTimeout != 3*time.Second ||
 				cfg.Transport.DialTimeout != 10*time.Second || cfg.Upstream.RequestTimeout != 2*time.Second {
 				t.Fatal("transport settings did not retain precedence or independent timeout defaults")
 			}
+
 			reset := cfg.PolicyDefaults().Apply(cfg)
 			if reset.Transport != cfg.Transport {
 				t.Fatal("policy replacement changed startup transport settings")
@@ -47,12 +50,15 @@ func TestTransportExplicitZeroAndFalse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	writeConfig(t, path, string(data))
+
 	cfg, err := Load(Options{Path: path, LookupEnv: lookup(nil)})
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if cfg.Transport != (Transport{}) {
 		t.Fatal("explicit zero and false transport values were replaced by defaults")
 	}
@@ -92,10 +98,12 @@ func TestTransportTypedOverrides(t *testing.T) {
 					"transport.max_idle_conns":            "0",
 				}
 			}
+
 			cfg, err := Load(options)
 			if err != nil {
 				t.Fatal(err)
 			}
+
 			if cfg.Transport.MaxResponseHeaderBytes != 1<<33 || cfg.Transport.ForceAttemptHTTP2 || cfg.Transport.MaxIdleConns != 0 {
 				t.Fatal("transport override lost a 64-bit integer, explicit false, or zero")
 			}

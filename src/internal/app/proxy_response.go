@@ -18,6 +18,7 @@ func (writer proxyResponseWriter) WriteHeader(status int) {
 			return
 		}
 	}
+
 	writer.ResponseWriter.WriteHeader(status)
 }
 

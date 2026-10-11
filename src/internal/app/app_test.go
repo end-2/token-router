@@ -39,11 +39,13 @@ func testApplication(t *testing.T, upstream http.Handler, limiter bucket.Reconfi
 	t.Helper()
 	u := httptest.NewServer(upstream)
 	t.Cleanup(u.Close)
+
 	cfg := config.Defaults()
 	for _, apply := range configure {
 		apply(&cfg)
 	}
 	cfg.Upstream.Routes[0].BaseURLs = []string{u.URL}
+
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	a := &application{cfg: cfg, logger: logger, limiter: limiter}
 	p, err := a.newProxy()
@@ -51,6 +53,7 @@ func testApplication(t *testing.T, upstream http.Handler, limiter bucket.Reconfi
 		t.Fatal(err)
 	}
 	t.Cleanup(p.CloseIdleConnections)
+
 	m, err := prometheus.New()
 	if err != nil {
 		t.Fatal(err)
@@ -82,8 +85,10 @@ func TestRoutesAndRateLimit(t *testing.T) {
 				upstreamCalls++
 				w.WriteHeader(http.StatusCreated)
 			}), limiter)
+
 			r := httptest.NewRecorder()
 			a.handler().ServeHTTP(r, httptest.NewRequestWithContext(t.Context(), http.MethodGet, tc.path, nil))
+
 			if r.Code != tc.status || limiter.calls != tc.calls {
 				t.Fatalf("status=%d calls=%d, want status=%d calls=%d", r.Code, limiter.calls, tc.status, tc.calls)
 			}
@@ -96,6 +101,7 @@ func TestRoutesAndRateLimit(t *testing.T) {
 			if strings.Contains(r.Body.String(), "sensitive") {
 				t.Fatal("backend details exposed")
 			}
+
 			metrics := httptest.NewRecorder()
 			a.metrics.Handler().ServeHTTP(metrics, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/metrics", nil))
 			if !strings.Contains(metrics.Body.String(), `status="`+httpStatus(tc.status)+`"`) {
@@ -119,6 +125,7 @@ func TestNotReadyRejectsNewRequests(t *testing.T) {
 	limiter := &fixedLimiter{decision: bucket.Decision{Allowed: true}}
 	a := testApplication(t, http.NotFoundHandler(), limiter)
 	a.ready.Store(false)
+
 	for _, path := range []string{"/readyz", "/v1/models"} {
 		r := httptest.NewRecorder()
 		a.handler().ServeHTTP(r, httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil))
@@ -126,6 +133,7 @@ func TestNotReadyRejectsNewRequests(t *testing.T) {
 			t.Fatalf("%s returned %d", path, r.Code)
 		}
 	}
+
 	if limiter.calls != 0 {
 		t.Fatal("shutdown request consumed bucket capacity")
 	}
@@ -137,6 +145,7 @@ func TestShutdownDrainsAndEnforcesDeadline(t *testing.T) {
 			entered, release, exited := make(chan struct{}), make(chan struct{}), make(chan struct{})
 			requestCtx, cancelRequests := context.WithCancel(context.Background())
 			defer cancelRequests()
+
 			listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 			if err != nil {
 				t.Fatal(err)
@@ -154,18 +163,21 @@ func TestShutdownDrainsAndEnforcesDeadline(t *testing.T) {
 					}
 				}),
 			}
+
 			cfg := config.Defaults()
 			cfg.Server.ShutdownTimeout = 150 * time.Millisecond
 			if !force {
 				cfg.Server.ShutdownTimeout = 2 * time.Second
 			}
 			a := &application{cfg: cfg, logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			done := make(chan error, 1)
 			go func() {
 				done <- a.serveListeners(ctx, []*http.Server{server}, []net.Listener{listener}, cancelRequests)
 			}()
+
 			response := make(chan error, 1)
 			go func() {
 				client := &http.Client{Timeout: 3 * time.Second}
@@ -188,6 +200,7 @@ func TestShutdownDrainsAndEnforcesDeadline(t *testing.T) {
 			case <-time.After(3 * time.Second):
 				t.Fatal("request did not enter handler")
 			}
+
 			cancel()
 			if !force {
 				select {
@@ -197,6 +210,7 @@ func TestShutdownDrainsAndEnforcesDeadline(t *testing.T) {
 				}
 				close(release)
 			}
+
 			select {
 			case err := <-done:
 				if force != errors.Is(err, context.DeadlineExceeded) {
@@ -239,14 +253,17 @@ func TestPrometheusListenerSelectionWithoutOTLP(t *testing.T) {
 					t.Error(err)
 				}
 			})
+
 			cfg := config.Defaults()
 			cfg.Server.Address = "127.0.0.1:0"
 			cfg.Telemetry.Logs.Enabled = false
 			cfg.Telemetry.Metrics.Enabled = tc.metrics
 			cfg.Telemetry.Metrics.Prometheus.Enabled = tc.prometheus
 			cfg.Telemetry.Metrics.Prometheus.Address = occupied.Addr().String()
+
 			ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 			defer cancel()
+
 			err = Run(ctx, cfg)
 			if tc.metrics && tc.prometheus {
 				if err == nil || !strings.Contains(err.Error(), "listen on "+occupied.Addr().String()) {
@@ -269,6 +286,7 @@ func TestMetricsListenFailureClosesAPIListener(t *testing.T) {
 			t.Error(err)
 		}
 	})
+
 	available, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -277,12 +295,15 @@ func TestMetricsListenFailureClosesAPIListener(t *testing.T) {
 	if err := available.Close(); err != nil {
 		t.Fatal(err)
 	}
+
 	a := testApplication(t, http.NotFoundHandler(), &fixedLimiter{})
 	a.cfg.Server.Address = address
 	a.cfg.Telemetry.Metrics.Prometheus.Address = occupied.Addr().String()
+
 	if err := a.serve(context.Background()); err == nil {
 		t.Fatal("expected metrics bind failure")
 	}
+
 	reopened, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", address)
 	if err != nil {
 		t.Fatalf("API listener leaked: %v", err)

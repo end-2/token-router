@@ -76,6 +76,7 @@ func New(ctx context.Context, cfg config.Telemetry, output io.Writer) (_ *Teleme
 	if !cfg.Logs.Enabled {
 		local = slog.DiscardHandler
 	}
+
 	t := &Telemetry{
 		logger: slog.New(local), tracer: tracenoop.NewTracerProvider().Tracer(instrumentationName),
 		propagator: propagation.TraceContext{}, tracing: cfg.OTLP.Enabled && cfg.Traces.Enabled,
@@ -88,6 +89,7 @@ func New(ctx context.Context, cfg config.Telemetry, output io.Writer) (_ *Teleme
 			err = errors.Join(err, t.Shutdown(shutdownCtx))
 		}
 	}()
+
 	instanceID := cfg.ServiceInstanceID
 	if instanceID == "" {
 		instanceID = rand.Text()
@@ -98,6 +100,7 @@ func New(ctx context.Context, cfg config.Telemetry, output io.Writer) (_ *Teleme
 		attribute.String("service.version", cfg.ServiceVersion),
 		attribute.String("deployment.environment.name", cfg.Environment),
 	)
+
 	endpoint := strings.TrimRight(cfg.OTLP.Endpoint, "/")
 	if t.tracing {
 		exporter, exportErr := otlptracehttp.New(ctx,
@@ -115,6 +118,7 @@ func New(ctx context.Context, cfg config.Telemetry, output io.Writer) (_ *Teleme
 		)
 		t.tracer = t.traces.Tracer(instrumentationName)
 	}
+
 	meter := metricnoop.NewMeterProvider().Meter(instrumentationName)
 	if cfg.OTLP.Enabled && cfg.Metrics.Enabled {
 		exporter, exportErr := otlpmetrichttp.New(ctx,
@@ -132,6 +136,7 @@ func New(ctx context.Context, cfg config.Telemetry, output io.Writer) (_ *Teleme
 	if err := t.createInstruments(meter); err != nil {
 		return nil, fmt.Errorf("initialize telemetry instruments: %w", err)
 	}
+
 	handler := local
 	if cfg.OTLP.Enabled && cfg.Logs.Enabled {
 		exporter, exportErr := otlploghttp.New(ctx,
@@ -178,12 +183,15 @@ func (t *Telemetry) Shutdown(ctx context.Context) error {
 			wg.Go(func() { metricsErr = t.metrics.Shutdown(ctx) })
 		}
 		wg.Wait()
+
 		if t.logs != nil {
 			logsErr = t.logs.Shutdown(ctx)
 		}
+
 		if tracesErr != nil || metricsErr != nil || logsErr != nil {
 			t.shutdownError = errors.New("telemetry shutdown failed")
 		}
+
 		for _, status := range t.exports {
 			if status.failed.Load() {
 				t.shutdownError = errors.Join(t.shutdownError, fmt.Errorf("OTLP %s export failed", status.signal))

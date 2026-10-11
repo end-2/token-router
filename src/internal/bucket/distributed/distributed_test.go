@@ -38,14 +38,17 @@ func TestDistributedNoopUsageChecksLifecycle(t *testing.T) {
 			t.Cleanup(stream.cancel)
 			l := &Limiter{stream: stream, timeout: time.Second,
 				limits: config.LimitValues{TokensPerSecond: tc.rate}}
+
 			if err := l.RecordUsage(t.Context(), tc.tokens); err != nil {
 				t.Fatalf("no-op usage: %v", err)
 			}
+
 			ctx, cancel := context.WithCancel(t.Context())
 			cancel()
 			if err := l.RecordUsage(ctx, tc.tokens); !errors.Is(err, context.Canceled) {
 				t.Fatalf("canceled no-op usage: %v", err)
 			}
+
 			stream.cancel()
 			if err := l.RecordUsage(t.Context(), tc.tokens); !errors.Is(err, bucket.ErrClosed) {
 				t.Fatalf("closed no-op usage: %v", err)
@@ -71,6 +74,7 @@ func distributedCluster(t *testing.T, size int, configure func(*config.RateLimit
 			nodes[i].server.Close()
 		})
 	}
+
 	for i, node := range nodes {
 		cfg := config.Defaults().RateLimit
 		cfg.Backend = "memory"
@@ -82,6 +86,7 @@ func distributedCluster(t *testing.T, size int, configure func(*config.RateLimit
 		node.cfg = cfg
 		startDistributedNode(t, node)
 	}
+
 	waitDistributedLeader(t, nodes)
 	return nodes
 }
@@ -93,6 +98,7 @@ func startDistributedNode(t *testing.T, node *distributedTestNode) {
 		t.Fatal(err)
 	}
 	node.limiter = limiter
+
 	mux := http.NewServeMux()
 	node.limiter.RegisterAdmin(mux)
 	node.server.Config.Handler = mux
@@ -112,6 +118,7 @@ func waitDistributedLeader(t *testing.T, nodes []*distributedTestNode) int {
 				leader = i
 			}
 		}
+
 		if leader >= 0 {
 			known := true
 			for _, node := range nodes {
@@ -124,6 +131,7 @@ func waitDistributedLeader(t *testing.T, nodes []*distributedTestNode) int {
 				return leader
 			}
 		}
+
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatal("distributed cluster did not elect a leader")
@@ -143,8 +151,10 @@ func TestDistributedSharedAccountsAndFailover(t *testing.T) {
 	nodes := distributedCluster(t, 3, func(cfg *config.RateLimit) {
 		cfg.TokensPerSecond, cfg.TokenBurst = .001, 5
 	})
+
 	alice := bucket.WithAccount(t.Context(), "alice")
 	bob := bucket.WithAccount(t.Context(), "bob")
+
 	var allowed atomic.Int32
 	var wg sync.WaitGroup
 	for i := range 30 {
@@ -158,12 +168,15 @@ func TestDistributedSharedAccountsAndFailover(t *testing.T) {
 		})
 	}
 	wg.Wait()
+
 	if allowed.Load() != 10 {
 		t.Fatalf("shared burst allowed %d, want 10", allowed.Load())
 	}
+
 	if err := nodes[1].limiter.RecordUsage(bob, 8); err != nil {
 		t.Fatal(err)
 	}
+
 	leader := waitDistributedLeader(t, nodes)
 	follower := nodes[(leader+1)%len(nodes)]
 	values := (config.Config{RateLimit: follower.cfg}).Mutable().RateLimit
@@ -172,9 +185,11 @@ func TestDistributedSharedAccountsAndFailover(t *testing.T) {
 	if _, err := follower.limiter.Allow(alice); !errors.Is(err, bucket.ErrUnavailable) {
 		t.Fatalf("inconsistent policy must fail closed: %v", err)
 	}
+
 	for _, node := range nodes {
 		node.limiter.Update(values)
 	}
+
 	stopDistributedNode(t, nodes[leader])
 	newLeader := waitDistributedLeader(t, nodes)
 	for _, node := range nodes {
@@ -187,11 +202,13 @@ func TestDistributedSharedAccountsAndFailover(t *testing.T) {
 				t.Fatalf("failover lost balance: %+v, %v", decision, err)
 			}
 		}
+
 		decision, err := node.limiter.Allow(bucket.WithAccount(t.Context(), "charlie"))
 		if err != nil || !decision.Allowed {
 			t.Fatalf("independent account denied: %+v, %v", decision, err)
 		}
 	}
+
 	// Losing another voter removes quorum. A surviving former leader must not
 	// admit requests even before it notices its leadership lease has expired.
 	for i, node := range nodes {
@@ -200,6 +217,7 @@ func TestDistributedSharedAccountsAndFailover(t *testing.T) {
 			break
 		}
 	}
+
 	for _, node := range nodes {
 		if node.limiter != nil {
 			ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
@@ -217,9 +235,11 @@ func TestDistributedRestartsPreserveState(t *testing.T) {
 		t.Run(map[bool]string{false: "log", true: "snapshot"}[snapshot], func(t *testing.T) {
 			nodes := distributedCluster(t, 3, func(cfg *config.RateLimit) { cfg.Burst = 1 })
 			ctx := bucket.WithAccount(t.Context(), "persisted-account")
+
 			if decision, err := nodes[0].limiter.Allow(ctx); err != nil || !decision.Allowed {
 				t.Fatalf("initial allow: %+v, %v", decision, err)
 			}
+
 			leader := waitDistributedLeader(t, nodes)
 			if err := nodes[leader].limiter.raft.Barrier(2 * time.Second).Error(); err != nil {
 				t.Fatal(err)
@@ -229,9 +249,11 @@ func TestDistributedRestartsPreserveState(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
+
 			for _, node := range nodes {
 				stopDistributedNode(t, node)
 			}
+
 			for _, node := range nodes {
 				listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", node.cfg.Memory.Distributed.Address)
 				if err != nil {
@@ -241,6 +263,7 @@ func TestDistributedRestartsPreserveState(t *testing.T) {
 				startDistributedNode(t, node)
 			}
 			waitDistributedLeader(t, nodes)
+
 			for _, node := range nodes {
 				decision, err := node.limiter.Allow(ctx)
 				if err != nil || decision.Allowed {
@@ -271,24 +294,29 @@ func TestDistributedAdminAuthenticationAndValidation(t *testing.T) {
 			r.Header.Set("X-Token-Router-Cluster", node.limiter.stream.cluster)
 			w := httptest.NewRecorder()
 			node.server.Config.Handler.ServeHTTP(w, r)
+
 			if w.Code != tc.status || strings.Contains(w.Body.String(), "secret") {
 				t.Fatalf("status %d, body %s", w.Code, w.Body.String())
 			}
 		})
 	}
+
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	if _, err := node.limiter.Allow(ctx); !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled request: %v", err)
 	}
+
 	if err := node.limiter.RecordUsage(t.Context(), -1); !errors.Is(err, bucket.ErrInvalidUsage) {
 		t.Fatal(err)
 	}
+
 	limiter := node.limiter
 	stopDistributedNode(t, node)
 	if _, err := limiter.Allow(t.Context()); !errors.Is(err, bucket.ErrClosed) {
 		t.Fatalf("closed limiter: %v", err)
 	}
+
 	node.cfg.Memory.Distributed.Peers = append(node.cfg.Memory.Distributed.Peers, "127.0.0.1:12345")
 	if changed, err := New(node.cfg); err == nil {
 		if closeErr := changed.Close(); closeErr != nil {

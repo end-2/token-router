@@ -78,6 +78,7 @@ func (s *adminStream) Close() error {
 		connections = append(connections, conn)
 	}
 	s.mu.Unlock()
+
 	var err error
 	for _, conn := range connections {
 		err = errors.Join(err, conn.Close())
@@ -100,12 +101,15 @@ func (s *adminStream) Dial(address raft.ServerAddress, timeout time.Duration) (n
 	if !s.peers[string(address)] {
 		return nil, bucket.ErrUnavailable
 	}
+
 	ctx, cancel := context.WithTimeout(s.ctx, timeout)
 	defer cancel()
+
 	conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", string(address))
 	if err != nil {
 		return nil, bucket.ErrUnavailable
 	}
+
 	reader := bufio.NewReader(conn)
 	tracked, err := s.track(conn, reader)
 	if err != nil {
@@ -118,6 +122,7 @@ func (s *adminStream) Dial(address raft.ServerAddress, timeout time.Duration) (n
 			_ = tracked.Close()
 		}
 	}()
+
 	deadline, _ := ctx.Deadline()
 	if err := conn.SetDeadline(deadline); err != nil {
 		return nil, err
@@ -134,6 +139,7 @@ func (s *adminStream) Dial(address raft.ServerAddress, timeout time.Duration) (n
 	if err := response.Body.Close(); err != nil || response.StatusCode != http.StatusOK {
 		return nil, bucket.ErrUnavailable
 	}
+
 	if err := conn.SetDeadline(time.Time{}); err != nil {
 		return nil, err
 	}
@@ -146,11 +152,13 @@ func (s *adminStream) serveConnect(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
+
 	conn, buffer, err := http.NewResponseController(w).Hijack()
 	if err != nil {
 		http.Error(w, "connection unavailable", http.StatusServiceUnavailable)
 		return
 	}
+
 	tracked, err := s.track(conn, buffer.Reader)
 	if err != nil {
 		return
@@ -162,6 +170,7 @@ func (s *adminStream) serveConnect(w http.ResponseWriter, r *http.Request) {
 			_ = tracked.Close()
 		}
 	}()
+
 	if _, err := io.WriteString(buffer, "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n"); err != nil {
 		return
 	}
@@ -171,6 +180,7 @@ func (s *adminStream) serveConnect(w http.ResponseWriter, r *http.Request) {
 	if err := conn.SetDeadline(time.Time{}); err != nil {
 		return
 	}
+
 	select {
 	case s.accept <- tracked:
 		handedOff = true

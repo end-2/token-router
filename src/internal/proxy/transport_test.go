@@ -34,9 +34,11 @@ func TestTransportConnectionReuse(t *testing.T) {
 			}
 			upstream.Start()
 			t.Cleanup(upstream.Close)
+
 			cfg := testTransportConfig()
 			cfg.DisableKeepAlives = test.disable
 			handler := newTestHandlerWithTransport(t, upstreamConfig(upstream.URL), cfg)
+
 			for range 2 {
 				w := httptest.NewRecorder()
 				handler.ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/models", nil))
@@ -44,6 +46,7 @@ func TestTransportConnectionReuse(t *testing.T) {
 					t.Fatalf("unexpected response: %d", w.Code)
 				}
 			}
+
 			if got := connections.Load(); got != test.want {
 				t.Fatalf("opened %d connections, want %d", got, test.want)
 			}
@@ -61,12 +64,15 @@ func TestTransportHTTP2Selection(t *testing.T) {
 			upstream.EnableHTTP2 = true
 			upstream.StartTLS()
 			t.Cleanup(upstream.Close)
+
 			cfg := testTransportConfig()
 			cfg.ForceAttemptHTTP2 = enabled
 			handler := newTestHandlerWithTransport(t, upstreamConfig(upstream.URL), cfg)
 			handler.transport.TLSClientConfig = upstream.Client().Transport.(*http.Transport).TLSClientConfig.Clone()
+
 			w := httptest.NewRecorder()
 			handler.ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/models", nil))
+
 			want := "1"
 			if enabled {
 				want = "2"
@@ -93,10 +99,12 @@ func TestTransportConnectionLimitHonorsRequestDeadline(t *testing.T) {
 	}))
 	t.Cleanup(upstream.Close)
 	t.Cleanup(finish)
+
 	cfg := testTransportConfig()
 	cfg.MaxConnsPerHost = 1
 	cfg.ResponseHeaderTimeout = 0
 	handler := newTestHandlerWithTransport(t, upstreamConfig(upstream.URL), cfg)
+
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	t.Cleanup(cancel)
 	done := make(chan int, 1)
@@ -110,10 +118,12 @@ func TestTransportConnectionLimitHonorsRequestDeadline(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal("first upstream request did not arrive")
 	}
+
 	queuedContext, cancelQueued := context.WithTimeout(ctx, 100*time.Millisecond)
 	defer cancelQueued()
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, httptest.NewRequestWithContext(queuedContext, http.MethodGet, "/v1/models", nil))
+
 	if w.Code != http.StatusGatewayTimeout {
 		t.Fatalf("queued request returned %d, want 504", w.Code)
 	}
@@ -122,6 +132,7 @@ func TestTransportConnectionLimitHonorsRequestDeadline(t *testing.T) {
 		t.Fatal("queued request exceeded the connection limit")
 	default:
 	}
+
 	finish()
 	select {
 	case status := <-done:
@@ -131,8 +142,10 @@ func TestTransportConnectionLimitHonorsRequestDeadline(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal("active request did not finish")
 	}
+
 	w = httptest.NewRecorder()
 	handler.ServeHTTP(w, httptest.NewRequestWithContext(ctx, http.MethodGet, "/v1/models", nil))
+
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("connection was not released after completion: %d", w.Code)
 	}
@@ -144,6 +157,7 @@ func TestTransportResponseHeaderLimit(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	t.Cleanup(upstream.Close)
+
 	for _, test := range []struct {
 		name  string
 		limit int64
@@ -156,8 +170,10 @@ func TestTransportResponseHeaderLimit(t *testing.T) {
 			cfg := testTransportConfig()
 			cfg.MaxResponseHeaderBytes = test.limit
 			handler := newTestHandlerWithTransport(t, upstreamConfig(upstream.URL), cfg)
+
 			w := httptest.NewRecorder()
 			handler.ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/models", nil))
+
 			if w.Code != test.want {
 				t.Fatalf("response status=%d, want %d", w.Code, test.want)
 			}

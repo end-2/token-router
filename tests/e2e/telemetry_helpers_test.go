@@ -80,6 +80,7 @@ func getBackend(ctx context.Context, client *http.Client, endpoint string) (body
 		return nil, 0, err
 	}
 	defer func() { err = errors.Join(err, response.Body.Close()) }()
+
 	body, err = io.ReadAll(io.LimitReader(response.Body, 4<<20))
 	return body, response.StatusCode, err
 }
@@ -92,6 +93,7 @@ func metricValue(ctx context.Context, client *http.Client, expression string) (f
 	if status != http.StatusOK {
 		return 0, fmt.Errorf("Prometheus query status %d: %s", status, body)
 	}
+
 	var result struct {
 		Status string `json:"status"`
 		Data   struct {
@@ -106,6 +108,7 @@ func metricValue(ctx context.Context, client *http.Client, expression string) (f
 	if result.Status != "success" {
 		return 0, fmt.Errorf("Prometheus query did not succeed: %s", body)
 	}
+
 	var total float64
 	for _, sample := range result.Data.Result {
 		if len(sample.Value) != 2 {
@@ -115,6 +118,7 @@ func metricValue(ctx context.Context, client *http.Client, expression string) (f
 		if err := json.Unmarshal(sample.Value[1], &value); err != nil {
 			return 0, err
 		}
+
 		number, err := strconv.ParseFloat(value, 64)
 		if err != nil {
 			return 0, err
@@ -143,10 +147,12 @@ func getTrace(ctx context.Context, client *http.Client, traceID string) ([]trace
 	if status != http.StatusOK {
 		return nil, "", fmt.Errorf("Tempo query status %d: %s", status, body)
 	}
+
 	var document any
 	if err := json.Unmarshal(body, &document); err != nil {
 		return nil, "", err
 	}
+
 	var spans []traceSpan
 	var walk func(any) error
 	walk = func(value any) error {
@@ -179,6 +185,7 @@ func getTrace(ctx context.Context, client *http.Client, traceID string) ([]trace
 		}
 		return nil
 	}
+
 	err = walk(document)
 	return spans, string(body), err
 }
@@ -224,6 +231,7 @@ func queryLogs(ctx context.Context, client *http.Client, service string) (int, s
 	if status != http.StatusOK {
 		return 0, "", fmt.Errorf("Loki query status %d: %s", status, body)
 	}
+
 	var document struct {
 		Status string `json:"status"`
 		Data   struct {
@@ -238,6 +246,7 @@ func queryLogs(ctx context.Context, client *http.Client, service string) (int, s
 	if document.Status != "success" {
 		return 0, "", fmt.Errorf("Loki query did not succeed: %s", body)
 	}
+
 	count := 0
 	for _, stream := range document.Data.Result {
 		count += len(stream.Values)

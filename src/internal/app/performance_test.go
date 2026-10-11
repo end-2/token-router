@@ -34,6 +34,7 @@ func BenchmarkProxyPipeline(b *testing.B) {
 			if name == "model" {
 				cfg.Upstream.Routes[0].Model = "benchmark"
 			}
+
 			payload := `{"model":"benchmark","messages":[{"role":"user","content":"hello"}]}`
 			response := `{"choices":[{"message":{"content":"` + strings.Repeat("x", 1024) + `"}}],"usage":{"total_tokens":10}}`
 			contentType := "application/json"
@@ -45,6 +46,7 @@ func BenchmarkProxyPipeline(b *testing.B) {
 				response = strings.Repeat("data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\n", 32) +
 					"data: {\"choices\":[],\"usage\":{\"total_tokens\":10}}\n\ndata: [DONE]\n\n"
 			}
+
 			telemetry, err := telemetry.New(b.Context(), cfg.Telemetry, io.Discard)
 			if err != nil {
 				b.Fatal(err)
@@ -54,6 +56,7 @@ func BenchmarkProxyPipeline(b *testing.B) {
 					b.Error(err)
 				}
 			})
+
 			limiter, err := backend.New(b.Context(), cfg.RateLimit)
 			if err != nil {
 				b.Fatal(err)
@@ -63,6 +66,7 @@ func BenchmarkProxyPipeline(b *testing.B) {
 					b.Error(err)
 				}
 			})
+
 			a := &application{cfg: cfg, current: cfg.Mutable(), logger: telemetry.Logger(), limiter: limiter, telemetry: telemetry}
 			if cfg.Telemetry.Metrics.Enabled {
 				a.metrics, err = prometheus.New()
@@ -70,6 +74,7 @@ func BenchmarkProxyPipeline(b *testing.B) {
 					b.Fatal(err)
 				}
 			}
+
 			options := []proxy.Option{proxy.WithTransport(func(http.RoundTripper) http.RoundTripper {
 				return pipelineTransport{payload: response, contentType: contentType}
 			})}
@@ -84,6 +89,7 @@ func BenchmarkProxyPipeline(b *testing.B) {
 			a.proxy = &proxyGeneration{handler: p}
 			a.ready.Store(true)
 			handler := a.handler()
+
 			b.ReportAllocs()
 			b.SetBytes(int64(len(response)))
 			b.ResetTimer()
@@ -92,6 +98,7 @@ func BenchmarkProxyPipeline(b *testing.B) {
 				request.Header.Set("Content-Type", "application/json")
 				request.Header.Set("Authorization", accountJWT(`{"sub":"benchmark","iat":1}`))
 				writer := &pipelineWriter{header: make(http.Header)}
+
 				for pb.Next() {
 					request.Body = io.NopCloser(strings.NewReader(payload))
 					request.ContentLength = int64(len(payload))
@@ -121,6 +128,7 @@ func (t pipelineTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 			return nil, err
 		}
 	}
+
 	return &http.Response{
 		StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {t.contentType}},
 		Body: io.NopCloser(strings.NewReader(t.payload)), ContentLength: int64(len(t.payload)), Request: r,
@@ -150,6 +158,7 @@ func BenchmarkAccountIdentifier(b *testing.B) {
 			request := httptest.NewRequestWithContext(b.Context(), http.MethodGet, "/v1/models", nil)
 			request.Header.Set("Authorization", tc.authorization)
 			cfg := config.Account{Enabled: true, JWTClaim: "sub"}
+
 			b.ReportAllocs()
 			for b.Loop() {
 				if identifier, ok := accountIdentifier(request, cfg); !ok || identifier != "benchmark" {

@@ -32,6 +32,7 @@ func (d Distributed) Validate() error {
 	if !validAddress(d.Address) {
 		return fmt.Errorf("rate_limit.memory.distributed.address must be a canonical IP:admin-port address")
 	}
+
 	seen := make(map[string]bool, len(d.Peers))
 	for _, peer := range d.Peers {
 		if !validAddress(peer) || seen[peer] {
@@ -42,12 +43,14 @@ func (d Distributed) Validate() error {
 	if !seen[d.Address] {
 		return fmt.Errorf("rate_limit.memory.distributed.peers must include rate_limit.memory.distributed.address")
 	}
+
 	if strings.TrimSpace(d.DataDir) == "" {
 		return fmt.Errorf("rate_limit.memory.distributed.data_dir must not be empty")
 	}
 	if d.Token == "" || strings.IndexFunc(d.Token, func(r rune) bool { return r < 33 || r > 126 }) >= 0 {
 		return fmt.Errorf("rate_limit.memory.distributed.token must contain nonempty printable ASCII without spaces")
 	}
+
 	if d.RequestTimeout <= 0 {
 		return fmt.Errorf("rate_limit.memory.distributed.request_timeout must be positive")
 	}

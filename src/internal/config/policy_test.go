@@ -16,12 +16,14 @@ func TestPolicyFileLoadAndPrecedence(t *testing.T) {
 	file := filepath.Join(dir, "policy.yaml")
 	writeConfig(t, main, "policy:\n  file: policy.yaml\nadmin:\n  enabled: true\nrate_limit:\n  backend: redis\n")
 	writeConfig(t, file, "upstream:\n  routes: [{host: '*', model: '*', base_urls: ['localhost:9000']}]\nrate_limit:\n  burst: 7\n")
+
 	cfg, err := Load(Options{Path: main, LookupEnv: lookup(map[string]string{
 		"TOKEN_ROUTER_RATE_LIMIT_BURST": "50", "TOKEN_ROUTER_UPSTREAM_API_KEY": "startup-secret",
 	}), Overrides: map[string]string{"rate_limit.burst": "60"}})
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if cfg.Policy.File != file || cfg.RateLimit.Burst != 7 || cfg.RateLimit.Backend != "redis" ||
 		cfg.Upstream.Routes[0].BaseURLs[0] != "localhost:9000" || cfg.Upstream.APIKey != "startup-secret" || !cfg.Admin.Enabled {
 		t.Fatal("policy file did not merge with startup settings")
@@ -29,6 +31,7 @@ func TestPolicyFileLoadAndPrecedence(t *testing.T) {
 	if cfg.PolicyDefaults().RateLimit.Burst != 60 {
 		t.Fatal("startup fallback was not preserved")
 	}
+
 	if err := os.Remove(file); err != nil {
 		t.Fatal(err)
 	}
@@ -51,10 +54,12 @@ func TestPolicyDecodeRejectsStaticAndInvalidSettings(t *testing.T) {
 	} {
 		t.Run(data, func(t *testing.T) {
 			cfg := Defaults()
+
 			next, err := DecodePolicy([]byte(data), cfg.Mutable())
 			if err == nil {
 				err = next.Apply(cfg).Validate()
 			}
+
 			if err == nil {
 				t.Fatal("invalid update accepted")
 			}
@@ -69,27 +74,34 @@ func TestPolicyJSONRoundTripAndIndependentSnapshots(t *testing.T) {
 	cfg := Defaults()
 	cfg.Upstream.Routes = []UpstreamRoute{{Host: "api.example.com", BaseURLs: []string{"localhost:8000"}}}
 	current := cfg.Mutable()
+
 	cloned := current.Clone()
 	cloned.Upstream.Routes[0].BaseURLs[0] = "localhost:9999"
 	cloned.Upstream.Routes[0].Host = "changed.example.com"
+
 	if current.Upstream.Routes[0].BaseURLs[0] != "localhost:8000" || current.Upstream.Routes[0].Host != "api.example.com" {
 		t.Fatal("cloned routes share destination or condition storage")
 	}
+
 	data, err := json.Marshal(current)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if !strings.Contains(string(data), `"request_timeout":"0s"`) {
 		t.Fatal("JSON duration must use config units")
 	}
+
 	next, err := DecodePolicy(data, Defaults().Mutable())
 	if err != nil || !reflect.DeepEqual(current, next) {
 		t.Fatalf("round trip mismatch: %v", err)
 	}
+
 	next, err = DecodePolicy([]byte(`{"upstream":{"request_timeout":"2s","routes":[{"base_urls":["localhost:9000"]}]},"rate_limit":{"tokens_per_second":0,"token_burst":0}}`), current)
 	if err != nil || next.Upstream.RequestTimeout != 2*time.Second || next.Upstream.Routes[0].Host != "" {
 		t.Fatalf("array replacement or duration failed: %v", err)
 	}
+
 	next.Upstream.Routes[0].BaseURLs[0] = "localhost:9999"
 	if current.Upstream.Routes[0].BaseURLs[0] != cfg.Upstream.Routes[0].BaseURLs[0] || current.Upstream.Routes[0].Host != "api.example.com" {
 		t.Fatal("update mutated active snapshot")

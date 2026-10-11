@@ -79,6 +79,7 @@ func launchRouter(ctx context.Context, upstreamURL string, options routerOptions
 	for key, value := range environment {
 		command.Env = append(command.Env, key+"="+value)
 	}
+
 	session, err := gexec.Start(command, GinkgoWriter, GinkgoWriter)
 	Expect(err).NotTo(HaveOccurred())
 	process := &routerProcess{session: session}
@@ -116,6 +117,7 @@ func startRouter(ctx context.Context, upstreamURL string, options routerOptions)
 		process.url = "http://" + addresses[0]
 		process.metricsURL = "http://" + addresses[1]
 	}
+
 	client := newHTTPClient()
 	Eventually(func() (int, error) {
 		if process.session.ExitCode() != -1 {
@@ -183,6 +185,7 @@ func request(ctx context.Context, client *http.Client, method, url, body string,
 	for key, value := range headers {
 		req.Header.Set(key, value)
 	}
+
 	response, err := client.Do(req)
 	Expect(err).NotTo(HaveOccurred())
 	DeferCleanup(func() { Expect(response.Body.Close()).To(Succeed()) })

@@ -47,6 +47,7 @@ func TestMemoryConcurrentBurst(t *testing.T) {
 	l := New(10, 7, 0, 0)
 	now := time.Now()
 	l.now = func() time.Time { return now }
+
 	var allowed atomic.Int64
 	var wg sync.WaitGroup
 	for range 100 {
@@ -61,6 +62,7 @@ func TestMemoryConcurrentBurst(t *testing.T) {
 		})
 	}
 	wg.Wait()
+
 	if got := allowed.Load(); got != 7 {
 		t.Fatalf("allowed=%d, want 7", got)
 	}
@@ -68,6 +70,7 @@ func TestMemoryConcurrentBurst(t *testing.T) {
 
 func TestMemoryConcurrentClose(t *testing.T) {
 	l := New(10, 10, 0, 0)
+
 	var wg sync.WaitGroup
 	for range 30 {
 		wg.Go(func() {
@@ -87,6 +90,7 @@ func TestMemoryConcurrentClose(t *testing.T) {
 		})
 	}
 	wg.Wait()
+
 	if _, err := l.Allow(context.Background()); !errors.Is(err, bucket.ErrClosed) {
 		t.Fatalf("Allow after concurrent Close: %v", err)
 	}

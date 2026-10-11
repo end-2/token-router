@@ -44,6 +44,7 @@ func (c Transport) Validate() error {
 		case *int64:
 			negative = *value < 0
 		}
+
 		if negative {
 			return fmt.Errorf("%s must not be negative", setting.key)
 		}

@@ -56,10 +56,12 @@ func (a *application) updatePolicy(next config.PolicyConfig, persist bool) error
 	if err := next.Apply(a.cfg).Validate(); err != nil {
 		return err
 	}
+
 	current := a.snapshot()
 	changed := !reflect.DeepEqual(next, current)
 	proxyChanged := !reflect.DeepEqual(next.Upstream, current.Upstream) ||
 		(next.RateLimit.TokensPerSecond > 0) != (current.RateLimit.TokensPerSecond > 0)
+
 	var replacement *proxy.Handler
 	if proxyChanged {
 		var err error
@@ -68,6 +70,7 @@ func (a *application) updatePolicy(next config.PolicyConfig, persist bool) error
 			return err
 		}
 	}
+
 	if persist && a.cfg.Policy.File != "" {
 		data, err := yaml.Marshal(next)
 		if err == nil && len(data) > config.MaxPolicyBytes {
@@ -84,9 +87,11 @@ func (a *application) updatePolicy(next config.PolicyConfig, persist bool) error
 		}
 		a.fileDigest, a.fileSeen = sha256.Sum256(data), true
 	}
+
 	if !changed {
 		return nil
 	}
+
 	a.policyMu.Lock()
 	if a.policyClosed {
 		a.policyMu.Unlock()
@@ -102,6 +107,7 @@ func (a *application) updatePolicy(next config.PolicyConfig, persist bool) error
 	}
 	a.current = next.Clone()
 	a.policyMu.Unlock()
+
 	if replacement != nil {
 		previous.retire()
 	}
@@ -117,6 +123,7 @@ func writePolicyFile(path string, data []byte) (err error) {
 	if err != nil || !info.Mode().IsRegular() {
 		return errPersistPolicy
 	}
+
 	f, err := os.CreateTemp(filepath.Dir(path), ".policy-*.yaml")
 	if err != nil {
 		return errPersistPolicy
@@ -126,6 +133,7 @@ func writePolicyFile(path string, data []byte) (err error) {
 			err = errors.Join(err, errPersistPolicy)
 		}
 	}()
+
 	_, writeErr := f.Write(data)
 	if writeErr == nil {
 		writeErr = f.Sync()
@@ -134,6 +142,7 @@ func writePolicyFile(path string, data []byte) (err error) {
 	if writeErr != nil || closeErr != nil {
 		return errPersistPolicy
 	}
+
 	if err := os.Rename(f.Name(), path); err != nil {
 		return errPersistPolicy
 	}
@@ -143,14 +152,17 @@ func writePolicyFile(path string, data []byte) (err error) {
 func (a *application) reloadPolicy() error {
 	a.updateMu.Lock()
 	defer a.updateMu.Unlock()
+
 	data, err := config.ReadPolicyFile(a.cfg.Policy.File)
 	if err != nil {
 		return err
 	}
+
 	digest := sha256.Sum256(data)
 	if a.fileSeen && a.fileDigest == digest {
 		return nil
 	}
+
 	next, err := config.DecodePolicy(data, a.cfg.PolicyDefaults())
 	if err == nil {
 		err = a.updatePolicy(next, false)
@@ -158,6 +170,7 @@ func (a *application) reloadPolicy() error {
 	if err != nil {
 		return err
 	}
+
 	a.fileDigest, a.fileSeen = digest, true
 	return nil
 }
@@ -166,6 +179,7 @@ func (a *application) watchPolicy(ctx context.Context) {
 	if a.cfg.Policy.File == "" {
 		return
 	}
+
 	ticker := time.NewTicker(a.cfg.Policy.WatchInterval)
 	defer ticker.Stop()
 	failed := false
@@ -173,6 +187,7 @@ func (a *application) watchPolicy(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
+
 		if err := a.reloadPolicy(); err != nil {
 			if !failed {
 				a.logger.Warn("policy configuration reload failed; retaining active configuration", "error", err)
@@ -181,6 +196,7 @@ func (a *application) watchPolicy(ctx context.Context) {
 		} else {
 			failed = false
 		}
+
 		select {
 		case <-ctx.Done():
 			return
@@ -194,6 +210,7 @@ func (a *application) adminHandler() http.Handler {
 	if backend, ok := a.limiter.(bucket.AdminBackend); ok {
 		backend.RegisterAdmin(mux)
 	}
+
 	mux.HandleFunc("GET /config", func(w http.ResponseWriter, _ *http.Request) {
 		a.writeAdminJSON(w, http.StatusOK, a.snapshot())
 	})
@@ -208,6 +225,7 @@ func (a *application) editPolicy(w http.ResponseWriter, r *http.Request) {
 		a.writeAdminJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "server is not ready"})
 		return
 	}
+
 	r.Body = http.MaxBytesReader(w, r.Body, config.MaxPolicyBytes)
 	data, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -219,8 +237,10 @@ func (a *application) editPolicy(w http.ResponseWriter, r *http.Request) {
 		a.writeAdminJSON(w, status, map[string]string{"error": "cannot read configuration request"})
 		return
 	}
+
 	a.updateMu.Lock()
 	defer a.updateMu.Unlock()
+
 	base := a.cfg.PolicyDefaults()
 	if r.Method == http.MethodPatch {
 		base = a.snapshot()
@@ -239,6 +259,7 @@ func (a *application) editPolicy(w http.ResponseWriter, r *http.Request) {
 		a.writeAdminJSON(w, status, map[string]string{"error": err.Error()})
 		return
 	}
+
 	a.writeAdminJSON(w, http.StatusOK, a.snapshot())
 }
 
@@ -246,6 +267,7 @@ func (a *application) writeAdminJSON(w http.ResponseWriter, status int, value an
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)
+
 	if err := json.NewEncoder(w).Encode(value); err != nil {
 		a.logger.Debug("admin response could not be written")
 	}

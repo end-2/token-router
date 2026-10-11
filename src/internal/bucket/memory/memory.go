@@ -112,6 +112,7 @@ func (l *Limiter) Allow(ctx context.Context) (bucket.Decision, error) {
 			l.sweep(now)
 		}
 	}()
+
 	if err := ctx.Err(); err != nil {
 		return bucket.Decision{}, err
 	}
@@ -155,6 +156,7 @@ func (l *Limiter) RecordUsage(ctx context.Context, tokens int64) error {
 			l.sweep(now)
 		}
 	}()
+
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -206,12 +208,14 @@ func (l *Limiter) Update(values config.LimitValues) {
 		for _, s := range shard.states {
 			s.limiter.SetLimitAt(now, rate.Limit(values.RequestsPerSecond))
 			s.limiter.SetBurstAt(now, values.Burst)
+
 			if s.usageRate > 0 {
 				s.refillUsage(now)
 				s.usageTokens = math.Min(s.usageTokens, float64(values.TokenBurst))
 			} else {
 				s.usageTokens = float64(values.TokenBurst)
 			}
+
 			s.usageRate = values.TokensPerSecond
 			s.usageBurst = float64(values.TokenBurst)
 			s.usageUpdated = now

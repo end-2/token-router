@@ -22,6 +22,7 @@ func TestAccountIsolationAcrossBackends(t *testing.T) {
 				redis = miniredis.RunT(t)
 				cfg.Redis.Address = redis.Addr()
 			}
+
 			limiter, err := New(t.Context(), cfg)
 			if err != nil {
 				t.Fatal(err)
@@ -31,6 +32,7 @@ func TestAccountIsolationAcrossBackends(t *testing.T) {
 					t.Error(err)
 				}
 			})
+
 			alice := bucket.WithAccount(t.Context(), "alice-secret")
 			bob := bucket.WithAccount(t.Context(), "bob-secret")
 			allow := func(ctx context.Context, want bool) {
@@ -40,18 +42,22 @@ func TestAccountIsolationAcrossBackends(t *testing.T) {
 					t.Fatalf("allow: %+v, %v; want %v", decision, err, want)
 				}
 			}
+
 			allow(alice, true)
 			if err := limiter.RecordUsage(alice, 5); err != nil {
 				t.Fatal(err)
 			}
 			allow(alice, false)
+
 			allow(bob, true)
 			allow(bob, true)
 			allow(bob, false)
 			allow(t.Context(), true)
+
 			limiter.Update(config.LimitValues{RequestsPerSecond: .001, Burst: 3, TokensPerSecond: .001, TokenBurst: 4})
 			allow(alice, false)
 			allow(bob, false)
+
 			if redis != nil {
 				for _, key := range redis.Keys() {
 					if strings.Contains(key, "secret") {

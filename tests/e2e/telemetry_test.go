@@ -26,15 +26,19 @@ var _ = Describe("the OpenTelemetry pipeline", func() {
 			writer.WriteHeader(http.StatusOK)
 			writeBody(writer, `{"id":"test-response"}`)
 		})
+
 		process := startRouter(ctx, upstream.URL, routerOptions{env: telemetryEnvironment(service)})
 		client := newHTTPClient()
+
 		response := request(ctx, client, http.MethodPost,
 			process.url+"/v1/responses?credential=e2e-secret-query",
 			`{"input":"e2e-secret-prompt"}`, map[string]string{
 				"Authorization": "Bearer e2e-secret-api-key", "Traceparent": traceParent,
 			})
+
 		Expect(response.StatusCode).To(Equal(http.StatusOK))
 		Expect(readBody(response)).To(ContainSubstring("test-response"))
+
 		var upstreamParent string
 		Eventually(forwarded, requestTimeout).Should(Receive(&upstreamParent))
 		upstreamParts := strings.Split(upstreamParent, "-")
@@ -69,6 +73,7 @@ var _ = Describe("the OpenTelemetry pipeline", func() {
 		Eventually(func() (float64, error) {
 			return metricValue(ctx, client, requestMetric(service, http.StatusOK))
 		}, telemetryTimeout).Should(Equal(float64(1)))
+
 		var logJSON string
 		Eventually(func(g Gomega) {
 			count, body, err := queryLogs(ctx, client, service)
@@ -79,6 +84,7 @@ var _ = Describe("the OpenTelemetry pipeline", func() {
 			g.Expect(body).To(ContainSubstring(server.SpanID))
 			logJSON = body
 		}, telemetryTimeout).Should(Succeed())
+
 		for _, secret := range []string{"e2e-secret-query", "e2e-secret-prompt", "e2e-secret-api-key"} {
 			Expect(string(process.session.Err.Contents())).NotTo(ContainSubstring(secret))
 			Expect(traceJSON).NotTo(ContainSubstring(secret))
@@ -93,6 +99,7 @@ var _ = Describe("the OpenTelemetry pipeline", func() {
 			upstream := newUpstream(func(writer http.ResponseWriter, _ *http.Request) {
 				writer.WriteHeader(http.StatusServiceUnavailable)
 			})
+
 			environment := telemetryEnvironment(service)
 			environment["TOKEN_ROUTER_SERVER_ADDRESS"] = unusedAddress()
 			environment["TOKEN_ROUTER_TELEMETRY_METRICS_ENABLED"] = fmt.Sprint(metricsEnabled)
@@ -100,9 +107,11 @@ var _ = Describe("the OpenTelemetry pipeline", func() {
 			environment["TOKEN_ROUTER_TELEMETRY_LOGS_ENABLED"] = fmt.Sprint(logsEnabled)
 			process := startRouter(ctx, upstream.URL, routerOptions{env: environment})
 			client := newHTTPClient()
+
 			response := request(ctx, client, http.MethodGet, process.url+"/v1/models", "", map[string]string{"Traceparent": traceParent})
 			Expect(response.StatusCode).To(Equal(http.StatusServiceUnavailable))
 			readBody(response)
+
 			Expect(process.session.Command.Process.Signal(syscall.SIGTERM)).To(Succeed())
 			Eventually(process.session, 10*time.Second).Should(gexec.Exit(0))
 
@@ -111,6 +120,7 @@ var _ = Describe("the OpenTelemetry pipeline", func() {
 					return metricValue(ctx, client, requestMetric(service, http.StatusServiceUnavailable))
 				}, telemetryTimeout).Should(Equal(float64(1)))
 			}
+
 			if tracesEnabled {
 				Eventually(func(g Gomega) {
 					spans, _, err := getTrace(ctx, client, traceID)
@@ -122,6 +132,7 @@ var _ = Describe("the OpenTelemetry pipeline", func() {
 					g.Expect(outbound.Status.Code).To(Or(Equal(float64(2)), Equal("STATUS_CODE_ERROR")))
 				}, telemetryTimeout).Should(Succeed())
 			}
+
 			if logsEnabled {
 				Eventually(func(g Gomega) {
 					count, body, err := queryLogs(ctx, client, service)
@@ -130,8 +141,10 @@ var _ = Describe("the OpenTelemetry pipeline", func() {
 					g.Expect(body).To(ContainSubstring("HTTP request completed"))
 				}, telemetryTimeout).Should(Succeed())
 			}
+
 			assertSignalsAbsent(ctx, client, service, traceID, http.StatusServiceUnavailable,
 				metricsEnabled, tracesEnabled, logsEnabled)
+
 			entries, err := accessLogs(process.session.Err.Contents())
 			Expect(err).NotTo(HaveOccurred())
 			if logsEnabled {
@@ -157,17 +170,22 @@ var _ = Describe("the OpenTelemetry pipeline", func() {
 		upstream := newUpstream(func(writer http.ResponseWriter, _ *http.Request) {
 			writer.WriteHeader(http.StatusNoContent)
 		})
+
 		environment := telemetryEnvironment(service)
 		environment["TOKEN_ROUTER_TELEMETRY_OTLP_ENABLED"] = "false"
 		process := startRouter(ctx, upstream.URL, routerOptions{env: environment})
 		client := newHTTPClient()
+
 		response := request(ctx, client, http.MethodGet, process.url+"/v1/models", "", map[string]string{"Traceparent": traceParent})
 		Expect(response.StatusCode).To(Equal(http.StatusNoContent))
 		readBody(response)
+
 		metrics := request(ctx, client, http.MethodGet, process.metricsURL+"/metrics", "", nil)
 		Expect(readBody(metrics)).To(ContainSubstring("token_router_http_requests_total"))
+
 		Expect(process.session.Command.Process.Signal(syscall.SIGTERM)).To(Succeed())
 		Eventually(process.session, 10*time.Second).Should(gexec.Exit(0))
+
 		entries, err := accessLogs(process.session.Err.Contents())
 		Expect(err).NotTo(HaveOccurred())
 		Expect(entries).To(ContainElement(logEntry{Message: "HTTP request completed", Status: http.StatusNoContent}))
@@ -179,17 +197,20 @@ var _ = Describe("the OpenTelemetry pipeline", func() {
 		upstream := newUpstream(func(writer http.ResponseWriter, _ *http.Request) {
 			writer.WriteHeader(http.StatusNoContent)
 		})
+
 		environment := telemetryEnvironment(service)
 		environment["TOKEN_ROUTER_RATE_LIMIT_ENABLED"] = "true"
 		environment["TOKEN_ROUTER_RATE_LIMIT_REQUESTS_PER_SECOND"] = "0.001"
 		environment["TOKEN_ROUTER_RATE_LIMIT_BURST"] = "1"
 		process := startRouter(ctx, upstream.URL, routerOptions{env: environment})
 		client := newHTTPClient()
+
 		for _, status := range []int{http.StatusNoContent, http.StatusTooManyRequests} {
 			response := request(ctx, client, http.MethodGet, process.url+"/v1/models", "", nil)
 			Expect(response.StatusCode).To(Equal(status))
 			readBody(response)
 		}
+
 		Eventually(func(g Gomega) {
 			for _, result := range []string{"allowed", "denied"} {
 				value, err := metricValue(ctx, client, limitMetric(service, result))
@@ -218,35 +239,44 @@ var _ = Describe("the OpenTelemetry pipeline", func() {
 			case <-req.Context().Done():
 			}
 		})
+
 		environment := telemetryEnvironment(service)
 		environment["TOKEN_ROUTER_TELEMETRY_METRICS_EXPORT_INTERVAL"] = "1h"
 		process := startRouter(ctx, upstream.URL, routerOptions{env: environment})
 		client := newHTTPClient()
+
 		response := request(ctx, client, http.MethodPost, process.url+"/v1/responses", `{}`, map[string]string{"Traceparent": traceParent})
 		Expect(response.StatusCode).To(Equal(http.StatusOK))
 		reader := bufio.NewReader(response.Body)
 		Expect(readEvent(reader)).To(Equal("data: first"))
+
 		spans, _, err := getTrace(ctx, client, traceID)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(spans).To(BeEmpty(), "active SSE spans must finish with the response body")
+
 		value, err := metricValue(ctx, client, requestMetric(service, http.StatusOK))
 		Expect(err).NotTo(HaveOccurred())
 		Expect(value).To(BeZero())
+
 		Expect(process.session.Command.Process.Signal(syscall.SIGTERM)).To(Succeed())
 		Consistently(process.session, 100*time.Millisecond).ShouldNot(gexec.Exit())
+
 		complete()
 		Expect(readEvent(reader)).To(Equal("data: [DONE]"))
 		readBody(response)
 		Eventually(process.session, 10*time.Second).Should(gexec.Exit(0))
+
 		Eventually(func(g Gomega) {
 			spans, _, err := getTrace(ctx, client, traceID)
 			g.Expect(err).NotTo(HaveOccurred())
 			server, outbound := tracePair(spans)
 			g.Expect(server.SpanID).NotTo(BeEmpty())
 			g.Expect(outbound.ParentSpanID).To(Equal(server.SpanID))
+
 			value, err := metricValue(ctx, client, requestMetric(service, http.StatusOK))
 			g.Expect(err).NotTo(HaveOccurred())
 			g.Expect(value).To(Equal(float64(1)))
+
 			_, logs, err := queryLogs(ctx, client, service)
 			g.Expect(err).NotTo(HaveOccurred())
 			g.Expect(logs).To(ContainSubstring("HTTP request completed"))

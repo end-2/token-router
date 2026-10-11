@@ -26,6 +26,7 @@ func Recorder(record func(context.Context, int64)) func(*httputil.ReverseProxy) 
 		if record == nil {
 			return
 		}
+
 		rewrite := proxy.Rewrite
 		proxy.Rewrite = func(request *httputil.ProxyRequest) {
 			eligible := request.In.Method == http.MethodPost && usageGenerationPath(request.In.URL.Path)
@@ -37,6 +38,7 @@ func Recorder(record func(context.Context, int64)) func(*httputil.ReverseProxy) 
 				request.Out = request.Out.WithContext(context.WithValue(request.Out.Context(), usageEligibleKey{}, true))
 			}
 		}
+
 		modifyResponse := proxy.ModifyResponse
 		proxy.ModifyResponse = func(response *http.Response) error {
 			if modifyResponse != nil {
@@ -44,6 +46,7 @@ func Recorder(record func(context.Context, int64)) func(*httputil.ReverseProxy) 
 					return err
 				}
 			}
+
 			if response.Request == nil || response.Request.Method != http.MethodPost ||
 				response.Request.Context().Value(usageEligibleKey{}) != true ||
 				response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices || response.Body == nil {
@@ -53,10 +56,12 @@ func Recorder(record func(context.Context, int64)) func(*httputil.ReverseProxy) 
 			if encoding != "" && !strings.EqualFold(encoding, "identity") {
 				return nil
 			}
+
 			contentType, _, err := mime.ParseMediaType(response.Header.Get("Content-Type"))
 			if err != nil {
 				contentType = ""
 			}
+
 			body := &usageBody{ReadCloser: response.Body, ctx: response.Request.Context(), record: record}
 			if strings.EqualFold(contentType, "text/event-stream") {
 				body.events = &usageEvents{observe: body.observe}
@@ -102,6 +107,7 @@ func (body *usageBody) Read(buffer []byte) (int, error) {
 	if body.finished {
 		return n, err
 	}
+
 	if body.events != nil {
 		body.events.feed(buffer[:n])
 	} else if !body.tooLarge {
@@ -112,6 +118,7 @@ func (body *usageBody) Read(buffer []byte) (int, error) {
 			body.buffer = append(body.buffer, buffer[:n]...)
 		}
 	}
+
 	if err != nil {
 		body.finish(err == io.EOF)
 	} else if body.closed {
@@ -124,6 +131,7 @@ func (body *usageBody) Close() error {
 	// Closing first releases an in-flight transport read. Close does not finalize
 	// observer state because that read may still return more response bytes.
 	err := body.ReadCloser.Close()
+
 	body.mu.Lock()
 	defer body.mu.Unlock()
 	body.closed = true
@@ -135,6 +143,7 @@ func (body *usageBody) finish(completeStream bool) {
 	if body.finished {
 		return
 	}
+
 	body.finished = true
 	if body.events != nil {
 		if completeStream {
@@ -157,6 +166,7 @@ func (body *usageBody) observe(payload []byte, eventType string, streaming bool)
 	if !ok || total <= body.recorded {
 		return
 	}
+
 	delta := total - body.recorded
 	body.recorded = total
 	body.record(body.ctx, delta)
@@ -166,6 +176,7 @@ func responseUsage(payload []byte, eventType string, streaming bool) (int64, boo
 	if !mayContainUsage(payload) {
 		return 0, false
 	}
+
 	var response struct {
 		Type     string          `json:"type"`
 		Usage    json.RawMessage `json:"usage"`
@@ -176,12 +187,14 @@ func responseUsage(payload []byte, eventType string, streaming bool) (int64, boo
 	if err := json.Unmarshal(payload, &response); err != nil {
 		return 0, false
 	}
+
 	if total, ok := usageTotal(response.Usage); ok {
 		return total, true
 	}
 	if response.Response == nil {
 		return 0, false
 	}
+
 	if streaming {
 		if response.Type != "" {
 			eventType = response.Type
@@ -203,11 +216,13 @@ func mayContainUsage(payload []byte) bool {
 		if start < 0 {
 			return false
 		}
+
 		payload = payload[start+1:]
 		end := bytes.IndexByte(payload, '"')
 		if end < 0 {
 			return false
 		}
+
 		value := payload[:end]
 		if bytes.IndexByte(value, '\\') >= 0 {
 			return true
@@ -218,6 +233,7 @@ func mayContainUsage(payload []byte) bool {
 				return true
 			}
 		}
+
 		payload = payload[end+1:]
 	}
 	return false
@@ -227,6 +243,7 @@ func usageTotal(payload json.RawMessage) (int64, bool) {
 	if len(payload) == 0 || bytes.Equal(payload, []byte("null")) {
 		return 0, false
 	}
+
 	var usage struct {
 		Total      json.RawMessage `json:"total_tokens"`
 		Prompt     json.RawMessage `json:"prompt_tokens"`
@@ -237,6 +254,7 @@ func usageTotal(payload json.RawMessage) (int64, bool) {
 	if err := json.Unmarshal(payload, &usage); err != nil {
 		return 0, false
 	}
+
 	if total, ok := tokenCount(usage.Total); ok {
 		return total, true
 	}
@@ -285,6 +303,7 @@ func (events *usageEvents) feed(payload []byte) {
 				continue
 			}
 		}
+
 		end := bytes.IndexAny(payload, "\r\n")
 		if end < 0 {
 			end = len(payload)
@@ -306,6 +325,7 @@ func (events *usageEvents) feed(payload []byte) {
 		if end == len(payload) {
 			return
 		}
+
 		events.endLine()
 		events.previousCR = payload[end] == '\r'
 		payload = payload[end+1:]
@@ -326,6 +346,7 @@ func (events *usageEvents) endLine() {
 			events.eventType = string(value)
 		}
 	}
+
 	events.line = events.line[:0]
 	events.lineNonEmpty = false
 }
@@ -334,6 +355,7 @@ func (events *usageEvents) dispatch() {
 	if !events.tooLarge && len(events.data) > 0 {
 		events.observe(events.data[:len(events.data)-1], events.eventType, true)
 	}
+
 	events.data = events.data[:0]
 	events.eventType = ""
 	events.eventBytes = 0

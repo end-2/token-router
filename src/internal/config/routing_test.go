@@ -23,6 +23,7 @@ func TestParseUpstreamURL(t *testing.T) {
 			}
 		})
 	}
+
 	for _, input := range []string{
 		"", "example.com", ":9000", "127.0.0.1:0", "127.0.0.1:65536", "127.0.0.1:abc",
 		"127.0.0.1:9000/path", "//example.com", "ftp://example.com", "https://example.com:",
@@ -56,10 +57,12 @@ func TestLoadRoutingPrecedence(t *testing.T) {
 				options.Overrides = map[string]string{"upstream.routes": routes}
 			}
 			writeConfig(t, path, body)
+
 			cfg, err := Load(options)
 			if err != nil {
 				t.Fatal(err)
 			}
+
 			wantRoutes := []UpstreamRoute{
 				{Host: "*", Model: "*", BaseURLs: []string{"127.0.0.1:9000", "https://example.com/gateway"}},
 				{Host: "API.example.com", Model: "chat", BaseURLs: []string{"127.0.0.1:9001", "https://example.com"}},
@@ -100,6 +103,7 @@ func TestRejectInvalidRoutingConfiguration(t *testing.T) {
 			}
 		})
 	}
+
 	for _, raw := range []string{"null", "secret-value", "[null]", "[{model: chat, base_urls: [null]}]", "[]\n---\n[]", "[{unknown: secret-value}]", "[{model: a, model: b}]"} {
 		t.Run(raw, func(t *testing.T) {
 			_, err := Load(Options{Path: filepath.Join(t.TempDir(), "absent.yaml"), LookupEnv: lookup(nil), Overrides: map[string]string{"upstream.routes": raw}})
@@ -120,10 +124,12 @@ func TestRoutingWithSingleDefaultOrNoFallback(t *testing.T) {
 		t.Run(body, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "config.yaml")
 			writeConfig(t, path, "upstream:\n  "+body+"\n")
+
 			cfg, err := Load(Options{Path: path, LookupEnv: lookup(nil)})
 			if err != nil {
 				t.Fatal(err)
 			}
+
 			if len(cfg.Upstream.Routes) != 1 || cfg.Upstream.Routes[0].BaseURLs[0] != "localhost:9000" {
 				t.Fatal("configured routes did not replace the built-in default route")
 			}

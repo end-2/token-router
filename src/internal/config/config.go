@@ -181,6 +181,7 @@ func (c Config) Validate() error {
 			return fmt.Errorf("admin.address must differ from other listener addresses")
 		}
 	}
+
 	if err := validateAddress("server.address", c.Server.Address); err != nil {
 		return err
 	}
@@ -195,6 +196,7 @@ func (c Config) Validate() error {
 	if c.Server.MaxHeaderBytes <= 0 {
 		return fmt.Errorf("server.max_header_bytes must be positive")
 	}
+
 	if err := c.Upstream.ValidateRouting(); err != nil {
 		return err
 	}
@@ -207,9 +209,11 @@ func (c Config) Validate() error {
 			return fmt.Errorf("%s must not contain control characters", field.name)
 		}
 	}
+
 	if err := c.Transport.Validate(); err != nil {
 		return err
 	}
+
 	if c.RateLimit.Backend != "memory" && c.RateLimit.Backend != "redis" {
 		return fmt.Errorf("rate_limit.backend must be memory or redis")
 	}
@@ -226,6 +230,7 @@ func (c Config) Validate() error {
 			return fmt.Errorf("distributed rate limiting requires admin.enabled and an admin.address port matching rate_limit.memory.distributed.address")
 		}
 	}
+
 	if math.IsNaN(c.RateLimit.RequestsPerSecond) || math.IsInf(c.RateLimit.RequestsPerSecond, 0) || c.RateLimit.RequestsPerSecond < 0 || (c.RateLimit.Enabled && c.RateLimit.RequestsPerSecond == 0) {
 		return fmt.Errorf("rate_limit.requests_per_second must be finite and positive when enabled")
 	}
@@ -235,6 +240,7 @@ func (c Config) Validate() error {
 	if c.RateLimit.Enabled && float64(c.RateLimit.Burst)/c.RateLimit.RequestsPerSecond >= float64(math.MaxInt64)/float64(time.Second) {
 		return fmt.Errorf("rate_limit bucket refill time exceeds the supported duration")
 	}
+
 	if math.IsNaN(c.RateLimit.TokensPerSecond) || math.IsInf(c.RateLimit.TokensPerSecond, 0) || c.RateLimit.TokensPerSecond < 0 {
 		return fmt.Errorf("rate_limit.tokens_per_second must be finite and nonnegative")
 	}
@@ -247,6 +253,7 @@ func (c Config) Validate() error {
 	if c.RateLimit.Enabled && c.RateLimit.TokensPerSecond > 0 && float64(c.RateLimit.TokenBurst)/c.RateLimit.TokensPerSecond >= float64(math.MaxInt64)/float64(time.Second) {
 		return fmt.Errorf("rate_limit token usage bucket refill time exceeds the supported duration")
 	}
+
 	if c.RateLimit.Redis.DB < 0 {
 		return fmt.Errorf("rate_limit.redis.db must not be negative")
 	}
@@ -261,6 +268,7 @@ func (c Config) Validate() error {
 			return fmt.Errorf("rate_limit.redis timeouts must be positive when the Redis backend is enabled")
 		}
 	}
+
 	prometheus := c.Telemetry.Metrics.Prometheus
 	if c.Telemetry.Metrics.Enabled && prometheus.Enabled {
 		if err := validateAddress("telemetry.metrics.prometheus.address", prometheus.Address); err != nil {
@@ -274,6 +282,7 @@ func (c Config) Validate() error {
 			return fmt.Errorf("telemetry.metrics.prometheus.path must be an absolute URL path without query, fragment, or patterns")
 		}
 	}
+
 	if c.Telemetry.Logs.Level != "debug" && c.Telemetry.Logs.Level != "info" && c.Telemetry.Logs.Level != "warn" && c.Telemetry.Logs.Level != "error" {
 		return fmt.Errorf("telemetry.logs.level must be debug, info, warn, or error")
 	}
@@ -290,9 +299,11 @@ func (c Telemetry) validate() error {
 	if math.IsNaN(c.Traces.SampleRatio) || math.IsInf(c.Traces.SampleRatio, 0) || c.Traces.SampleRatio < 0 || c.Traces.SampleRatio > 1 {
 		return fmt.Errorf("telemetry.traces.sample_ratio must be finite and between 0 and 1")
 	}
+
 	if !c.OTLP.Enabled {
 		return nil
 	}
+
 	if strings.ContainsFunc(c.ServiceInstanceID, func(r rune) bool { return r < 32 || r == 127 }) {
 		return fmt.Errorf("telemetry.service_instance_id must not contain control characters")
 	}
@@ -305,10 +316,12 @@ func (c Telemetry) validate() error {
 			return fmt.Errorf("%s must be nonempty and contain no control characters", field.name)
 		}
 	}
+
 	u, err := url.Parse(c.OTLP.Endpoint)
 	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.Opaque != "" {
 		return fmt.Errorf("telemetry.otlp.endpoint must be an absolute HTTP or HTTPS URL without credentials, query, or fragment")
 	}
+
 	if c.OTLP.Timeout <= 0 || c.ShutdownTimeout <= 0 {
 		return fmt.Errorf("telemetry.otlp.timeout and telemetry.shutdown_timeout must be positive when OTLP export is enabled")
 	}
@@ -323,6 +336,7 @@ func validateAddress(name, address string) error {
 	if err != nil {
 		return fmt.Errorf("%s must have host:port format", name)
 	}
+
 	number, err := strconv.Atoi(port)
 	if err != nil || number < 0 || number > 65535 {
 		return fmt.Errorf("%s must use a port between 0 and 65535", name)

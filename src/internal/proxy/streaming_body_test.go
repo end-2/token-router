@@ -16,6 +16,7 @@ import (
 func TestStreamingPreservesRequestBodyUntilTransportFinishes(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
+
 	releaseRead := make(chan struct{})
 	var releaseOnce sync.Once
 	unblockRead := func() { releaseOnce.Do(func() { close(releaseRead) }) }
@@ -26,6 +27,7 @@ func TestStreamingPreservesRequestBodyUntilTransportFinishes(t *testing.T) {
 			t.Errorf("read upstream body: %v", err)
 			return
 		}
+
 		writer.Header().Set("Content-Type", "text/event-stream")
 		if _, err := io.WriteString(writer, "data: first\n\n"); err != nil {
 			t.Errorf("write first event: %v", err)
@@ -35,6 +37,7 @@ func TestStreamingPreservesRequestBodyUntilTransportFinishes(t *testing.T) {
 			t.Errorf("flush first event: %v", err)
 			return
 		}
+
 		select {
 		case <-finishStream:
 			if _, err := io.WriteString(writer, "data: done\n\n"); err != nil {
@@ -43,6 +46,7 @@ func TestStreamingPreservesRequestBodyUntilTransportFinishes(t *testing.T) {
 		case <-request.Context().Done():
 		}
 	}))
+
 	handler := newTestHandler(t, upstreamConfig(upstream.URL))
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		request.Body = &delayedEOFBody{ReadCloser: request.Body, remaining: request.ContentLength, release: releaseRead, result: readResult}
@@ -54,6 +58,7 @@ func TestStreamingPreservesRequestBodyUntilTransportFinishes(t *testing.T) {
 		server.Close()
 		upstream.Close()
 	}()
+
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, server.URL+"/v1/responses", strings.NewReader(`{"stream":true}`))
 	if err != nil {
 		t.Fatal(err)
@@ -67,6 +72,7 @@ func TestStreamingPreservesRequestBodyUntilTransportFinishes(t *testing.T) {
 			t.Errorf("close response: %v", err)
 		}
 	}()
+
 	reader := bufio.NewReader(response.Body)
 	if first, err := reader.ReadString('\n'); err != nil || first != "data: first\n" {
 		t.Fatalf("first event was not flushed: event=%q error=%v", first, err)
@@ -81,6 +87,7 @@ func TestStreamingPreservesRequestBodyUntilTransportFinishes(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal("outbound transport did not finish reading the request body")
 	}
+
 	close(finishStream)
 	remainder, err := io.ReadAll(reader)
 	if err != nil || string(remainder) != "\ndata: done\n\n" {
@@ -102,6 +109,7 @@ func (body *delayedEOFBody) Read(buffer []byte) (int, error) {
 		body.remaining -= int64(n)
 		return n, err
 	}
+
 	<-body.release
 	n, err := body.ReadCloser.Read(buffer)
 	body.result <- err

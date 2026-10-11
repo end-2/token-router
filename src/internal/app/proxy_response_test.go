@@ -21,6 +21,7 @@ func TestInformationalResponsePreservesFinalStatus(t *testing.T) {
 			a := testApplication(t, http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 				writer.Header().Set("Link", "</style.css>; rel=preload")
 				writer.WriteHeader(status)
+
 				writer.Header().Del("Link")
 				writer.Header().Set("Content-Type", "application/json")
 				writer.Header().Set("Retry-After", "10")
@@ -31,6 +32,7 @@ func TestInformationalResponsePreservesFinalStatus(t *testing.T) {
 			}), &fixedLimiter{decision: bucket.Decision{Allowed: true}})
 			server := httptest.NewServer(a.handler())
 			defer server.Close()
+
 			informational := make(chan int, 2)
 			trace := &httptrace.ClientTrace{Got1xxResponse: func(code int, _ textproto.MIMEHeader) error {
 				informational <- code
@@ -40,6 +42,7 @@ func TestInformationalResponsePreservesFinalStatus(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+
 			response, err := (&http.Client{Timeout: 2 * time.Second}).Do(request)
 			if err != nil {
 				t.Fatal(err)
@@ -49,13 +52,16 @@ func TestInformationalResponsePreservesFinalStatus(t *testing.T) {
 					t.Errorf("close response: %v", err)
 				}
 			}()
+
 			body, err := io.ReadAll(response.Body)
 			if err != nil {
 				t.Fatal(err)
 			}
+
 			if response.StatusCode != http.StatusTooManyRequests || response.Header.Get("Retry-After") != "10" || string(body) != `{"error":"rate limited"}` {
 				t.Fatalf("final response was changed after 1xx: status=%d headers=%v body=%s", response.StatusCode, response.Header, body)
 			}
+
 			select {
 			case got := <-informational:
 				if got != status {
@@ -64,6 +70,7 @@ func TestInformationalResponsePreservesFinalStatus(t *testing.T) {
 			default:
 				t.Fatal("informational response was not forwarded")
 			}
+
 			metrics := httptest.NewRecorder()
 			a.metrics.Handler().ServeHTTP(metrics, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/metrics", nil))
 			if !strings.Contains(metrics.Body.String(), `token_router_http_requests_total{method="GET",route="/v1/*",status="429"} 1`) {
@@ -95,6 +102,7 @@ func TestProxyResponseWriterPreservesStreamingFlush(t *testing.T) {
 	}), &fixedLimiter{decision: bucket.Decision{Allowed: true}})
 	server := httptest.NewServer(a.handler())
 	defer server.Close()
+
 	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL+"/v1/responses", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -108,9 +116,11 @@ func TestProxyResponseWriterPreservesStreamingFlush(t *testing.T) {
 			t.Errorf("close response: %v", err)
 		}
 	}()
+
 	first, err := bufio.NewReader(response.Body).ReadString('\n')
 	if err != nil || first != "data: first\n" {
 		t.Fatalf("stream was not flushed through Echo: event=%q error=%v", first, err)
 	}
+
 	releaseUpstream()
 }

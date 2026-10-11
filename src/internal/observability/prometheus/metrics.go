@@ -43,6 +43,7 @@ func New() (*Metrics, error) {
 			Name: "token_router_rate_limit_decisions_total", Help: "Rate limiter outcomes: allowed, denied or error.",
 		}, []string{"result"}),
 	}
+
 	for _, collector := range []prometheus.Collector{
 		m.requests, m.duration, m.inFlight, m.limits, collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 	} {
@@ -80,9 +81,11 @@ func (m *Metrics) Middleware(next echo.HandlerFunc) echo.HandlerFunc {
 			if response, err := echo.UnwrapResponse(c.Response()); err == nil {
 				status = response.Status
 			}
+
 			m.requests.WithLabelValues(method, route, strconv.Itoa(status)).Inc()
 			m.duration.WithLabelValues(method, route).Observe(time.Since(start).Seconds())
 		}()
+
 		if err := next(c); err != nil {
 			c.Echo().HTTPErrorHandler(c, err)
 		}

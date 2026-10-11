@@ -47,20 +47,24 @@ func TestRedisSharedRefillAndExpiry(t *testing.T) {
 	cfg := redisConfig(s.Addr())
 	first := redisForTest(t, cfg)
 	second := redisForTest(t, cfg)
+
 	for _, l := range []bucket.Limiter{first, second, first} {
 		if got, err := l.Allow(context.Background()); err != nil || !got.Allowed {
 			t.Fatalf("initial burst = %+v, %v", got, err)
 		}
 	}
+
 	for range 3 {
 		if got, err := second.Allow(context.Background()); err != nil || got.Allowed || got.RetryAfter != 500*time.Millisecond {
 			t.Fatalf("shared empty bucket = %+v, %v", got, err)
 		}
 	}
+
 	s.SetTime(now.Add(250 * time.Millisecond))
 	if got, err := first.Allow(context.Background()); err != nil || got.Allowed || got.RetryAfter != 250*time.Millisecond {
 		t.Fatalf("partial refill = %+v, %v", got, err)
 	}
+
 	s.SetTime(now.Add(500 * time.Millisecond))
 	if got, err := second.Allow(context.Background()); err != nil || !got.Allowed {
 		t.Fatalf("refill = %+v, %v", got, err)
@@ -68,11 +72,13 @@ func TestRedisSharedRefillAndExpiry(t *testing.T) {
 	if ttl := s.TTL(cfg.Redis.Key); ttl != 1500*time.Millisecond {
 		t.Fatalf("TTL=%v, want 1.5s", ttl)
 	}
+
 	s.FastForward(2 * time.Second)
 	s.SetTime(now.Add(2500 * time.Millisecond))
 	if s.Exists(cfg.Redis.Key) {
 		t.Fatal("idle bucket did not expire")
 	}
+
 	for range cfg.Burst {
 		if got, err := first.Allow(context.Background()); err != nil || !got.Allowed {
 			t.Fatalf("expired bucket refill = %+v, %v", got, err)
@@ -85,6 +91,7 @@ func TestRedisConcurrentSharedBurst(t *testing.T) {
 	s.SetTime(time.Unix(1_700_000_000, 0))
 	cfg := redisConfig(s.Addr())
 	limiters := []bucket.Limiter{redisForTest(t, cfg), redisForTest(t, cfg)}
+
 	var allowed atomic.Int64
 	var wg sync.WaitGroup
 	for i := range 30 {
@@ -99,6 +106,7 @@ func TestRedisConcurrentSharedBurst(t *testing.T) {
 		})
 	}
 	wg.Wait()
+
 	if got := allowed.Load(); got != int64(cfg.Burst) {
 		t.Fatalf("allowed=%d, want %d", got, cfg.Burst)
 	}
@@ -113,12 +121,15 @@ func TestRedisAuthenticationDatabaseAndKey(t *testing.T) {
 	cfg.Redis.DB = 2
 	cfg.Redis.Key = "configured:key"
 	l := redisForTest(t, cfg)
+
 	if got, err := l.Allow(context.Background()); err != nil || !got.Allowed {
 		t.Fatalf("configured Redis Allow = %+v, %v", got, err)
 	}
+
 	if s.Exists(cfg.Redis.Key) {
 		t.Fatal("bucket was written to the default database")
 	}
+
 	s.Select(cfg.Redis.DB)
 	if !s.Exists(cfg.Redis.Key) {
 		t.Fatal("bucket missing from configured database and key")
@@ -128,6 +139,7 @@ func TestRedisAuthenticationDatabaseAndKey(t *testing.T) {
 func TestRedisFailureCancellationAndClose(t *testing.T) {
 	s := miniredis.RunT(t)
 	l := redisForTest(t, redisConfig(s.Addr()))
+
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if got, err := l.Allow(ctx); got.Allowed || !errors.Is(err, context.Canceled) {
@@ -136,10 +148,12 @@ func TestRedisFailureCancellationAndClose(t *testing.T) {
 	if s.Exists("test:bucket") {
 		t.Fatal("canceled request modified bucket")
 	}
+
 	s.SetError("ERR credential=secret-value")
 	if got, err := l.Allow(context.Background()); got.Allowed || !errors.Is(err, bucket.ErrUnavailable) || strings.Contains(err.Error(), "secret-value") {
 		t.Fatalf("backend failure = %+v, %v", got, err)
 	}
+
 	s.SetError("")
 	if err := l.Close(); err != nil {
 		t.Fatal(err)
@@ -183,10 +197,12 @@ func TestRedisStartupHonorsDeadline(t *testing.T) {
 		}
 	})
 	t.Cleanup(wg.Wait)
+
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 	start := time.Now()
 	_, err = New(ctx, redisConfig(listener.Addr().String()))
+
 	if err == nil {
 		t.Fatal("expected startup deadline error")
 	}

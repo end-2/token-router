@@ -20,6 +20,7 @@ func applyDistributedState(t *testing.T, f *distributedFSM, command distributedC
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	result := f.Apply(&raft.Log{Data: data})
 	decision, ok := result.(bucket.Decision)
 	if !ok {
@@ -32,6 +33,7 @@ func TestDistributedStateRefillDebtAndLimits(t *testing.T) {
 	f := &distributedFSM{}
 	start := time.Unix(1700000000, 0)
 	limits := config.LimitValues{RequestsPerSecond: 1, Burst: 2, TokensPerSecond: 2, TokenBurst: 4}
+
 	for _, tc := range []struct {
 		name, account, op string
 		tokens            int64
@@ -57,6 +59,7 @@ func TestDistributedStateRefillDebtAndLimits(t *testing.T) {
 			}
 		})
 	}
+
 	limits.Burst = 20
 	limits.RequestsPerSecond = 2
 	decision := applyDistributedState(t, f, distributedCommand{distributedProposal: distributedProposal{
@@ -71,14 +74,17 @@ func TestDistributedSnapshotAndAccountCleanup(t *testing.T) {
 	original := &distributedFSM{}
 	start := time.Unix(1700000000, 0)
 	limits := config.LimitValues{RequestsPerSecond: 1, Burst: 1, TokensPerSecond: 1, TokenBurst: 1}
+
 	for _, account := range []string{"idle", "debtor"} {
 		applyDistributedState(t, original, distributedCommand{distributedProposal: distributedProposal{
 			Account: account, Operation: "allow", Limits: limits,
 		}, Now: start.UnixNano()})
 	}
+
 	applyDistributedState(t, original, distributedCommand{distributedProposal: distributedProposal{
 		Account: "debtor", Operation: "usage", Tokens: 1000, Limits: limits,
 	}, Now: start.UnixNano()})
+
 	snapshot, err := original.Snapshot()
 	if err != nil {
 		t.Fatal(err)
@@ -88,10 +94,12 @@ func TestDistributedSnapshotAndAccountCleanup(t *testing.T) {
 		t.Fatalf("persist: %v, closed=%v", err, sink.closed)
 	}
 	snapshot.Release()
+
 	restored := &distributedFSM{}
 	if err := restored.Restore(io.NopCloser(bytes.NewReader(sink.Bytes()))); err != nil {
 		t.Fatal(err)
 	}
+
 	// A restore must preserve cleanup timing as well as balances; otherwise a
 	// full old bucket can be recreated at a different capacity on one replica.
 	limits.Burst = 10
@@ -106,9 +114,11 @@ func TestDistributedSnapshotAndAccountCleanup(t *testing.T) {
 			t.Fatal("snapshot restored a different state")
 		}
 	}
+
 	if _, ok := restored.states["debtor"]; !ok {
 		t.Fatal("cleanup removed token debt")
 	}
+
 	if err := restored.Restore(io.NopCloser(bytes.NewBufferString("invalid"))); err == nil {
 		t.Fatal("invalid snapshot accepted")
 	}

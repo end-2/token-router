@@ -21,6 +21,7 @@ var _ = Describe("upstream token usage limits", func() {
 				writer.Header().Set("Content-Type", contentType)
 				writeBody(writer, body)
 			})
+
 			environment := map[string]string{
 				"TOKEN_ROUTER_RATE_LIMIT_ENABLED": "true",
 				"TOKEN_ROUTER_RATE_LIMIT_BACKEND": backend,
@@ -33,17 +34,21 @@ var _ = Describe("upstream token usage limits", func() {
 				"--rate-limit-tokens-per-second", "0.001",
 				"--rate-limit-token-burst", "10",
 			}}
+
 			first := startRouter(ctx, upstream.URL, options)
 			second := first
 			if backend == "redis" {
 				second = startRouter(ctx, upstream.URL, options)
 			}
+
 			client := newHTTPClient()
 			response := request(ctx, client, http.MethodPost, first.url+"/v1/chat/completions",
 				`{"model":"test-model","stream":true,"stream_options":{"include_usage":true}}`,
 				map[string]string{"Content-Type": "application/json"})
+
 			Expect(response.StatusCode).To(Equal(http.StatusOK))
 			Expect(readBody(response)).To(Equal(body))
+
 			response = request(ctx, client, http.MethodPost, second.url+"/v1/responses", `{}`, nil)
 			Expect(response.StatusCode).To(Equal(http.StatusTooManyRequests))
 			retry, err := strconv.Atoi(response.Header.Get("Retry-After"))

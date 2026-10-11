@@ -152,6 +152,7 @@ func (f field) set(raw string) error {
 	default:
 		return fmt.Errorf("unsupported configuration field type")
 	}
+
 	if err != nil {
 		return fmt.Errorf("invalid value for %s", f.key)
 	}

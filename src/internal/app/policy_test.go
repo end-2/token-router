@@ -29,6 +29,7 @@ func policyApplication(t *testing.T, upstream http.Handler, configure ...func(*c
 	for _, f := range configure {
 		f(&cfg)
 	}
+
 	l, err := backend.New(t.Context(), cfg.RateLimit)
 	if err != nil {
 		t.Fatal(err)
@@ -38,6 +39,7 @@ func policyApplication(t *testing.T, upstream http.Handler, configure ...func(*c
 			t.Error(err)
 		}
 	})
+
 	a := testApplication(t, upstream, l, func(c *config.Config) { *c = cfg })
 	t.Cleanup(func() { a.proxy.retire() })
 	return a
@@ -62,10 +64,12 @@ func TestAdminUpdatesPersistAndRejectInvalidChanges(t *testing.T) {
 					c.RateLimit.Redis.Address = miniredis.RunT(t).Addr()
 				}
 			})
+
 			response := adminRequest(t, a, http.MethodPatch, `{"upstream":{"routes":[{"host":"*","model":"*","base_urls":["localhost:9001"]}],"request_timeout":"2s"},"rate_limit":{"burst":3,"tokens_per_second":2,"token_burst":5}}`)
 			if response.Code != http.StatusOK {
 				t.Fatalf("update: %d %s", response.Code, response.Body)
 			}
+
 			snapshot := a.snapshot()
 			data, err := config.ReadPolicyFile(file)
 			if err != nil {
@@ -78,6 +82,7 @@ func TestAdminUpdatesPersistAndRejectInvalidChanges(t *testing.T) {
 			if snapshot.RateLimit.Burst != 3 || snapshot.Upstream.RequestTimeout != 2*time.Second {
 				t.Fatal("policy values did not change")
 			}
+
 			for _, body := range []string{
 				`{"rate_limit":{"backend":"redis"}}`, `{"rate_limit":{"enabled":false}}`,
 				`{"upstream":{"base_urls":["localhost:9000"]}}`, `{"upstream":{"routes":[]}}`,
@@ -95,14 +100,17 @@ func TestAdminUpdatesPersistAndRejectInvalidChanges(t *testing.T) {
 					t.Fatal("invalid update changed active settings")
 				}
 			}
+
 			unchanged, err := config.ReadPolicyFile(file)
 			if err != nil || string(unchanged) != string(data) {
 				t.Fatal("invalid update changed the file")
 			}
+
 			get := adminRequest(t, a, http.MethodGet, "")
 			if get.Code != http.StatusOK || strings.Contains(get.Body.String(), "backend") || strings.Contains(get.Body.String(), "transport") || get.Header().Get("Cache-Control") != "no-store" {
 				t.Fatal("GET did not return mutable settings")
 			}
+
 			if response := adminRequest(t, a, http.MethodPut, get.Body.String()); response.Code != http.StatusOK {
 				t.Fatalf("GET/PUT round trip: %s", response.Body)
 			}
@@ -118,17 +126,21 @@ func TestAdminPersistenceFailureAndBodyLimit(t *testing.T) {
 	if err := os.Symlink(file, link); err != nil {
 		t.Fatal(err)
 	}
+
 	a := policyApplication(t, http.NotFoundHandler(), func(c *config.Config) { c.Policy.File = link })
 	before := a.snapshot()
+
 	if w := adminRequest(t, a, http.MethodPatch, `{"rate_limit":{"burst":5}}`); w.Code != http.StatusInternalServerError {
 		t.Fatalf("expected persistence failure: %d %s", w.Code, w.Body)
 	}
 	if !reflect.DeepEqual(before, a.snapshot()) {
 		t.Fatal("failed persistence changed active state")
 	}
+
 	if w := adminRequest(t, a, http.MethodPatch, strings.Repeat("x", config.MaxPolicyBytes+1)); w.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("oversized body returned %d", w.Code)
 	}
+
 	a.ready.Store(false)
 	if w := adminRequest(t, a, http.MethodPatch, "{}"); w.Code != http.StatusServiceUnavailable {
 		t.Fatalf("update during shutdown returned %d", w.Code)
@@ -149,6 +161,7 @@ func TestPolicyReplacementPreservesStartupTransport(t *testing.T) {
 					t.Fatalf("policy did not replace proxy: %d", response.Code)
 				}
 			}
+
 			w := httptest.NewRecorder()
 			a.handler().ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/models", nil))
 			if w.Code != http.StatusBadGateway {
@@ -184,32 +197,38 @@ func TestPolicyWatcherReplacementRecoveryAndSymlink(t *testing.T) {
 	a := policyApplication(t, http.NotFoundHandler(), func(c *config.Config) {
 		c.Policy.File, c.Policy.WatchInterval = file, 5*time.Millisecond
 	})
+
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan struct{})
 	go func() { defer close(done); a.watchPolicy(ctx) }()
 	t.Cleanup(func() { cancel(); <-done })
 	eventually(t, func() bool { return a.snapshot().RateLimit.Burst == 2 })
+
 	replacement := filepath.Join(dir, "replacement.yaml")
 	writePolicyTestFile(t, replacement, "rate_limit: {burst: 3}")
 	if err := os.Rename(replacement, file); err != nil {
 		t.Fatal(err)
 	}
 	eventually(t, func() bool { return a.snapshot().RateLimit.Burst == 3 })
+
 	writePolicyTestFile(t, file, "rate_limit: {burst: -1}")
 	if err := a.reloadPolicy(); err == nil || a.snapshot().RateLimit.Burst != 3 {
 		t.Fatal("invalid file replaced active configuration")
 	}
+
 	if err := os.Remove(file); err != nil {
 		t.Fatal(err)
 	}
 	if err := a.reloadPolicy(); err == nil || a.snapshot().RateLimit.Burst != 3 {
 		t.Fatal("missing file replaced active configuration")
 	}
+
 	writePolicyTestFile(t, replacement, "rate_limit: {burst: 4}")
 	if err := os.Symlink(replacement, file); err != nil {
 		t.Fatal(err)
 	}
 	eventually(t, func() bool { return a.snapshot().RateLimit.Burst == 4 })
+
 	other := filepath.Join(dir, "other.yaml")
 	writePolicyTestFile(t, other, "rate_limit: {burst: 5}")
 	temporaryLink := filepath.Join(dir, "link.yaml")
@@ -244,6 +263,7 @@ func TestPolicySwapPreservesStreamAndAccountsUsage(t *testing.T) {
 	server := httptest.NewServer(a.handler())
 	t.Cleanup(server.Close)
 	t.Cleanup(finish)
+
 	client := &http.Client{Timeout: 5 * time.Second}
 	request, err := http.NewRequestWithContext(t.Context(), http.MethodPost, server.URL+"/v1/chat/completions", strings.NewReader("{}"))
 	if err != nil {
@@ -259,10 +279,12 @@ func TestPolicySwapPreservesStreamAndAccountsUsage(t *testing.T) {
 			t.Error(err)
 		}
 	}()
+
 	reader := bufio.NewReader(response.Body)
 	if first, err := reader.ReadString('\n'); err != nil || first != "data: first\n" {
 		t.Fatalf("stream did not start: %q %v", first, err)
 	}
+
 	next := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		if _, err := io.WriteString(w, "new upstream"); err != nil {
 			t.Error(err)
@@ -281,15 +303,18 @@ func TestPolicySwapPreservesStreamAndAccountsUsage(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("open stream blocked configuration update")
 	}
+
 	w := httptest.NewRecorder()
 	a.handler().ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/models", nil))
 	if w.Code != http.StatusOK || w.Body.String() != "new upstream" {
 		t.Fatal("new request did not use replacement upstream")
 	}
+
 	finish()
 	if tail, err := io.ReadAll(reader); err != nil || !strings.Contains(string(tail), "total_tokens") {
 		t.Fatalf("old stream did not finish: %q %v", tail, err)
 	}
+
 	eventually(t, func() bool {
 		w := httptest.NewRecorder()
 		a.handler().ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/models", nil))
@@ -302,6 +327,7 @@ func TestConcurrentAdminFileAndProxyRequests(t *testing.T) {
 	writePolicyTestFile(t, file, "{}")
 	a := policyApplication(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }), func(c *config.Config) { c.Policy.File = file })
 	handler := a.handler()
+
 	var wg sync.WaitGroup
 	for i := range 30 {
 		wg.Go(func() {
@@ -309,9 +335,11 @@ func TestConcurrentAdminFileAndProxyRequests(t *testing.T) {
 			if w.Code != http.StatusOK {
 				t.Errorf("admin status %d", w.Code)
 			}
+
 			if err := a.reloadPolicy(); err != nil {
 				t.Error(err)
 			}
+
 			w = httptest.NewRecorder()
 			handler.ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/models", nil))
 			if w.Code != http.StatusNoContent && w.Code != http.StatusTooManyRequests {
@@ -332,6 +360,7 @@ func TestAdminBindFailureClosesPublicListener(t *testing.T) {
 			t.Error(err)
 		}
 	})
+
 	available, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -340,13 +369,16 @@ func TestAdminBindFailureClosesPublicListener(t *testing.T) {
 	if err := available.Close(); err != nil {
 		t.Fatal(err)
 	}
+
 	a := policyApplication(t, http.NotFoundHandler(), func(c *config.Config) {
 		c.Server.Address = address
 		c.Admin.Enabled, c.Admin.Address = true, occupied.Addr().String()
 	})
+
 	if err := a.serve(t.Context()); err == nil {
 		t.Fatal("occupied admin address did not fail startup")
 	}
+
 	reopened, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", address)
 	if err != nil {
 		t.Fatalf("public listener leaked: %v", err)

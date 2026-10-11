@@ -79,14 +79,17 @@ func TestUsageEventsFragmentBoundaries(t *testing.T) {
 				": keepalive", "event: response.completed", `data: {"response":`,
 				`data: {"usage":{"total_tokens":12}}}`, "", "", "data: [DONE]", "", "",
 			}, ending))
+
 			for split := 0; split <= len(payload); split++ {
 				var got int64
 				body := &usageBody{ctx: context.Background(), record: func(_ context.Context, tokens int64) { got += tokens }}
 				events := usageEvents{observe: body.observe}
+
 				events.feed(payload[:split])
 				events.feed(nil)
 				events.feed(payload[split:])
 				events.finish()
+
 				if got != 12 {
 					t.Fatalf("split %d: usage = %d, want 12", split, got)
 				}
@@ -120,10 +123,12 @@ func TestUsageObservationIsBounded(t *testing.T) {
 			if test.streaming {
 				body.events = &usageEvents{observe: body.observe}
 			}
+
 			forwarded, err := io.ReadAll(body)
 			if err != nil || string(forwarded) != test.body {
 				t.Fatalf("oversized response changed: error=%v", err)
 			}
+
 			if got != test.want {
 				t.Fatalf("usage = %d, want %d", got, test.want)
 			}
@@ -160,14 +165,17 @@ func TestUsageRecorderProcessesBytesReturnedWithReadError(t *testing.T) {
 			if test.streaming {
 				body.events = &usageEvents{observe: body.observe}
 			}
+
 			buffer := make([]byte, 1024)
 			n, err := body.Read(buffer)
 			if string(buffer[:n]) != test.payload || !errors.Is(err, test.readError) {
 				t.Fatalf("read result changed: bytes=%q error=%v", buffer[:n], err)
 			}
+
 			if got != test.want {
 				t.Fatalf("usage = %d, want %d", got, test.want)
 			}
+
 			if err := body.Close(); err != nil {
 				t.Fatal(err)
 			}
@@ -200,11 +208,13 @@ func TestUsageRecorderCloseFinalizesReceivedJSON(t *testing.T) {
 			if test.streaming {
 				body.events = &usageEvents{observe: body.observe}
 			}
+
 			buffer := make([]byte, len(test.payload))
 			n, err := body.Read(buffer)
 			if n != len(test.payload) || err != nil {
 				t.Fatalf("read = %d, %v; expected full payload without EOF", n, err)
 			}
+
 			for range 2 {
 				if err := body.Close(); err != nil {
 					t.Fatal(err)
@@ -224,10 +234,12 @@ func TestUsageRecorderCloseUnblocksRead(t *testing.T) {
 			t.Errorf("close pipe writer: %v", err)
 		}
 	})
+
 	const payload = `{"usage":{"total_tokens":17}}`
 	body := &usageBody{ReadCloser: reader, ctx: context.Background()}
 	recorded := make(chan int64, 1)
 	body.record = func(_ context.Context, tokens int64) { recorded <- tokens }
+
 	readDone := make(chan error, 1)
 	go func() {
 		_, err := io.Copy(io.Discard, body)
@@ -236,8 +248,10 @@ func TestUsageRecorderCloseUnblocksRead(t *testing.T) {
 	if _, err := io.WriteString(writer, payload); err != nil {
 		t.Fatal(err)
 	}
+
 	closeDone := make(chan error, 1)
 	go func() { closeDone <- body.Close() }()
+
 	for _, result := range []<-chan error{closeDone, readDone} {
 		select {
 		case err := <-result:
@@ -248,6 +262,7 @@ func TestUsageRecorderCloseUnblocksRead(t *testing.T) {
 			t.Fatal("closing observer did not unblock read")
 		}
 	}
+
 	select {
 	case got := <-recorded:
 		if got != 17 {
@@ -273,12 +288,14 @@ func TestUsageRecorderObservesReadBytesArrivingAfterClose(t *testing.T) {
 		ctx:    context.Background(),
 		record: func(_ context.Context, tokens int64) { recorded <- tokens },
 	}
+
 	readDone := make(chan error, 1)
 	go func() {
 		_, err := body.Read(make([]byte, 128))
 		readDone <- err
 	}()
 	<-readStarted
+
 	closeDone := make(chan error, 1)
 	go func() { closeDone <- body.Close() }()
 	select {
@@ -289,6 +306,7 @@ func TestUsageRecorderObservesReadBytesArrivingAfterClose(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("close waited for observer read")
 	}
+
 	release()
 	select {
 	case err := <-readDone:
@@ -298,6 +316,7 @@ func TestUsageRecorderObservesReadBytesArrivingAfterClose(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("read did not finish after release")
 	}
+
 	select {
 	case got := <-recorded:
 		if got != 17 {

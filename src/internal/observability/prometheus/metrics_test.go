@@ -18,10 +18,12 @@ func TestMetricsRecordsErrorsAndBoundsLabels(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	e := echo.New()
 	e.Use(m.Middleware, middleware.Recover())
 	e.GET("/failure", func(_ *echo.Context) error { return errors.New("private details") })
 	e.GET("/panic", func(_ *echo.Context) error { panic("handler panic") })
+
 	for _, path := range []string{"/failure", "/panic"} {
 		response := httptest.NewRecorder()
 		e.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil))
@@ -30,8 +32,10 @@ func TestMetricsRecordsErrorsAndBoundsLabels(t *testing.T) {
 		}
 	}
 	e.ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), "RANDOM_METHOD", "/unknown/identifier", nil))
+
 	response := httptest.NewRecorder()
 	m.Handler().ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/metrics", nil))
+
 	for _, expected := range []string{
 		`token_router_http_requests_total{method="GET",route="/failure",status="500"} 1`,
 		`token_router_http_requests_total{method="GET",route="/panic",status="500"} 1`,
@@ -46,6 +50,7 @@ func TestMetricsRecordsErrorsAndBoundsLabels(t *testing.T) {
 	if strings.Contains(response.Body.String(), "RANDOM_METHOD") || strings.Contains(response.Body.String(), "/unknown/identifier") {
 		t.Fatal("unbounded metric label")
 	}
+
 	if _, err := New(); err != nil {
 		t.Fatalf("independent registry failed: %v", err)
 	}
@@ -56,6 +61,7 @@ func TestConcurrentLimitMeasurements(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	families, err := metrics.registry.Gather()
 	if err != nil {
 		t.Fatal(err)
@@ -65,6 +71,7 @@ func TestConcurrentLimitMeasurements(t *testing.T) {
 			t.Fatal("limit series appeared before a decision")
 		}
 	}
+
 	const workers, decisions = 12, 20
 	var wg sync.WaitGroup
 	for range workers {
@@ -80,11 +87,13 @@ func TestConcurrentLimitMeasurements(t *testing.T) {
 		})
 	}
 	wg.Wait()
+
 	want := map[string]int64{"allowed": workers * decisions, "denied": workers * decisions, "error": workers * decisions}
 	families, err = metrics.registry.Gather()
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	seen := map[string]int64{}
 	for _, family := range families {
 		if family.GetName() != "token_router_rate_limit_decisions_total" {
@@ -98,6 +107,7 @@ func TestConcurrentLimitMeasurements(t *testing.T) {
 			}
 		}
 	}
+
 	if len(seen) != len(want) {
 		t.Fatalf("Prometheus limit series=%v", seen)
 	}

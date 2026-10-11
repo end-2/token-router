@@ -28,6 +28,7 @@ func ParseUpstreamURL(raw string) (*url.URL, error) {
 		}
 		raw = "http://" + raw
 	}
+
 	u, err := url.Parse(raw)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" ||
 		u.User != nil || u.RawQuery != "" || u.ForceQuery || strings.Contains(raw, "#") || u.Opaque != "" ||
@@ -49,6 +50,7 @@ func (c Upstream) ValidateRouting() error {
 	if c.MaxRoutingBodyBytes <= 0 {
 		return errors.New("upstream.max_routing_body_bytes must be positive")
 	}
+
 	for i, route := range c.Routes {
 		key := fmt.Sprintf("upstream.routes[%d]", i)
 		if route.Host != "" && route.Host != "*" {
@@ -60,6 +62,7 @@ func (c Upstream) ValidateRouting() error {
 		if strings.ContainsFunc(route.Model, unicode.IsControl) {
 			return fmt.Errorf("%s.model must not contain control characters", key)
 		}
+
 		if len(route.BaseURLs) == 0 {
 			return fmt.Errorf("%s.base_urls must not be empty", key)
 		}

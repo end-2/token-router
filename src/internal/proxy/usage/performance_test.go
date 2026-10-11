@@ -15,6 +15,7 @@ func BenchmarkUsageEvents(b *testing.B) {
 			body := &usageBody{ctx: context.Background(), record: func(context.Context, int64) {}}
 			events := usageEvents{observe: body.observe}
 			payload := []byte(test.payload)
+
 			b.SetBytes(int64(len(payload)))
 			b.ReportAllocs()
 			b.ResetTimer()

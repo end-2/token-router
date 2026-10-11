@@ -55,6 +55,7 @@ func New(cfg config.Upstream) (*Router, error) {
 	if err := cfg.ValidateRouting(); err != nil {
 		return nil, err
 	}
+
 	routing := &Router{maxBodyBytes: int64(cfg.MaxRoutingBodyBytes)}
 	pools := make(map[routeCondition]*upstreamPool)
 	for _, rule := range cfg.Routes {
@@ -69,6 +70,7 @@ func New(cfg config.Upstream) (*Router, error) {
 			continue
 		}
 		pools[condition] = pool
+
 		specificity := 0
 		if host != "" {
 			specificity++
@@ -122,6 +124,7 @@ func (routing *Router) SelectTarget(writer http.ResponseWriter, request *http.Re
 	if len(routing.routes) == 1 && routing.routes[0].specificity == 0 {
 		return routing.routes[0].pool.selectTarget(), nil
 	}
+
 	host, port := splitRouteHost(request.Host)
 	needsModel := false
 	for _, route := range routing.routes {
@@ -130,6 +133,7 @@ func (routing *Router) SelectTarget(writer http.ResponseWriter, request *http.Re
 			break
 		}
 	}
+
 	model := ""
 	if needsModel {
 		var err *Error
@@ -138,6 +142,7 @@ func (routing *Router) SelectTarget(writer http.ResponseWriter, request *http.Re
 			return nil, err
 		}
 	}
+
 	var selected *upstreamPool
 	specificity := -1
 	for _, route := range routing.routes {
@@ -164,10 +169,12 @@ func (routing *Router) readModel(writer http.ResponseWriter, request *http.Reque
 	if encoding := strings.TrimSpace(request.Header.Get("Content-Encoding")); encoding != "" && !strings.EqualFold(encoding, "identity") {
 		return "", &Error{http.StatusUnsupportedMediaType, "unsupported_content_encoding", "Model routing requires an uncompressed JSON request body."}
 	}
+
 	tooLarge := &Error{http.StatusRequestEntityTooLarge, "routing_body_too_large", "The request body exceeds the model routing limit."}
 	if request.ContentLength > routing.maxBodyBytes {
 		return "", tooLarge
 	}
+
 	// Preserve the original closer and bytes so forwarding retains trailers and body ownership.
 	original := request.Body
 	// A context timeout alone does not interrupt a server-side Body.Read.
@@ -190,14 +197,17 @@ func (routing *Router) readModel(writer http.ResponseWriter, request *http.Reque
 		}
 		return "", &Error{http.StatusBadRequest, "invalid_request_body", "The request body could not be read for model routing."}
 	}
+
 	request.Body = &replayBody{Reader: bytes.NewReader(payload), Closer: original}
 	if len(bytes.TrimSpace(payload)) == 0 {
 		return "", nil
 	}
+
 	var object map[string]json.RawMessage
 	if err := json.Unmarshal(payload, &object); err != nil || object == nil {
 		return "", &Error{http.StatusBadRequest, "invalid_request_body", "Model routing requires a JSON object."}
 	}
+
 	var model string
 	if raw, ok := object["model"]; ok {
 		if err := json.Unmarshal(raw, &model); err != nil {

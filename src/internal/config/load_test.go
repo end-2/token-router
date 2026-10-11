@@ -25,16 +25,19 @@ func TestLoadPrecedence(t *testing.T) {
 		{name: "environment over file", yaml: "server:\n  address: ':8101'\n", env: map[string]string{"TOKEN_ROUTER_SERVER_ADDRESS": ":8102"}, want: ":8102"},
 		{name: "flag over environment", yaml: "server:\n  address: ':8101'\n", env: map[string]string{"TOKEN_ROUTER_SERVER_ADDRESS": ":8102"}, overrides: map[string]string{"server.address": ":8103"}, want: ":8103"},
 	}
+
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "config.yaml")
 			if test.yaml != "" {
 				writeConfig(t, path, test.yaml)
 			}
+
 			cfg, err := Load(Options{Path: path, LookupEnv: lookup(test.env), Overrides: test.overrides})
 			if err != nil {
 				t.Fatal(err)
 			}
+
 			if cfg.Server.Address != test.want {
 				t.Errorf("server.address = %q, want %q", cfg.Server.Address, test.want)
 			}
@@ -67,10 +70,12 @@ func TestLoadExplicitZeroValues(t *testing.T) {
 				}
 			}
 			writeConfig(t, path, body)
+
 			cfg, err := Load(options)
 			if err != nil {
 				t.Fatal(err)
 			}
+
 			if cfg.Telemetry.Metrics.Prometheus.Enabled || cfg.RateLimit.Enabled || cfg.RateLimit.RequestsPerSecond != 0 || cfg.RateLimit.Burst != 0 || cfg.Server.WriteTimeout != 0 || cfg.Upstream.APIKey != "" {
 				t.Error("explicit false, zero, or empty value was overwritten")
 			}
@@ -85,6 +90,7 @@ func TestLoadFileSelection(t *testing.T) {
 	missing := filepath.Join(directory, "missing.yaml")
 	writeConfig(t, first, "server:\n  address: ':8101'\n")
 	writeConfig(t, second, "server:\n  address: ':8102'\n")
+
 	tests := []struct {
 		name    string
 		options Options
@@ -99,11 +105,13 @@ func TestLoadFileSelection(t *testing.T) {
 		{name: "environment path", options: Options{Path: first, LookupEnv: lookup(map[string]string{"TOKEN_ROUTER_CONFIG": second})}, want: ":8102"},
 		{name: "flag path over environment", options: Options{Path: first, PathExplicit: true, LookupEnv: lookup(map[string]string{"TOKEN_ROUTER_CONFIG": second})}, want: ":8101"},
 	}
+
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			if test.options.LookupEnv == nil {
 				test.options.LookupEnv = lookup(nil)
 			}
+
 			cfg, err := Load(test.options)
 			if (err != nil) != test.wantErr {
 				t.Fatalf("Load error = %v, want error %v", err, test.wantErr)
@@ -131,10 +139,12 @@ func TestRejectInvalidYAML(t *testing.T) {
 		{"invalid boolean", "telemetry:\n  metrics:\n    prometheus:\n      enabled: secret-value"},
 		{"secret with wrong type", "upstream:\n  api_key: [secret-value]"},
 	}
+
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "config.yaml")
 			writeConfig(t, path, test.body)
+
 			_, err := Load(Options{Path: path, PathExplicit: true, LookupEnv: lookup(nil)})
 			if err == nil {
 				t.Fatal("expected an error")
@@ -180,13 +190,16 @@ func TestValidate(t *testing.T) {
 		{"log level", func(c *Config) { c.Telemetry.Logs.Level = "secret-value" }},
 		{"log format", func(c *Config) { c.Telemetry.Logs.Format = "secret-value" }},
 	}
+
 	if err := Defaults().Validate(); err != nil {
 		t.Fatalf("defaults are invalid: %v", err)
 	}
+
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			cfg := Defaults()
 			test.change(&cfg)
+
 			err := cfg.Validate()
 			if err == nil {
 				t.Fatal("expected validation error")
@@ -203,10 +216,12 @@ func TestEveryLeafHasEnvironmentAndFlagBindings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	var values map[string]any
 	if err := yaml.Unmarshal(encoded, &values); err != nil {
 		t.Fatal(err)
 	}
+
 	leaves := make(map[string]bool)
 	var walk func(map[string]any, string)
 	walk = func(values map[string]any, prefix string) {
@@ -219,10 +234,12 @@ func TestEveryLeafHasEnvironmentAndFlagBindings(t *testing.T) {
 		}
 	}
 	walk(values, "")
+
 	flags := Flags()
 	if len(leaves) != len(flags) {
 		t.Fatalf("%d YAML leaves have %d flag bindings", len(leaves), len(flags))
 	}
+
 	environment := make(map[string]string)
 	overrides := make(map[string]string)
 	for _, flag := range flags {
@@ -233,6 +250,7 @@ func TestEveryLeafHasEnvironmentAndFlagBindings(t *testing.T) {
 		environment["TOKEN_ROUTER_"+strings.ToUpper(strings.ReplaceAll(flag.Key, ".", "_"))] = flag.Default
 		overrides[flag.Key] = flag.Default
 	}
+
 	for _, options := range []Options{
 		{LookupEnv: lookup(environment)}, {LookupEnv: lookup(nil), Overrides: overrides},
 	} {
@@ -241,6 +259,7 @@ func TestEveryLeafHasEnvironmentAndFlagBindings(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+
 		want := Defaults()
 		want.RateLimit.Memory.Distributed.DataDir = filepath.Join(filepath.Dir(options.Path), want.RateLimit.Memory.Distributed.DataDir)
 		if !reflect.DeepEqual(cfg, want) {
@@ -254,6 +273,7 @@ func TestExampleConfigurationMatchesDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	want := Defaults()
 	want.RateLimit.Memory.Distributed.DataDir = "../../../data/rate-limit"
 	want.Policy.File, err = filepath.Abs("../../../policy.yaml")
@@ -262,9 +282,11 @@ func TestExampleConfigurationMatchesDefaults(t *testing.T) {
 	}
 	base := want.Mutable()
 	want.policyBase = &base
+
 	if !reflect.DeepEqual(cfg, want) {
 		t.Error("checked-in config.yaml and policy.yaml differ from built-in defaults")
 	}
+
 	data, err := os.ReadFile("../../../config.yaml")
 	if err != nil {
 		t.Fatal(err)
@@ -273,9 +295,11 @@ func TestExampleConfigurationMatchesDefaults(t *testing.T) {
 	if err := yaml.Unmarshal(data, &main); err != nil {
 		t.Fatal(err)
 	}
+
 	if _, ok := main["upstream"]; ok {
 		t.Error("upstream must be defined only in policy.yaml")
 	}
+
 	limits := main["rate_limit"].(map[string]any)
 	for _, key := range []string{"requests_per_second", "burst", "tokens_per_second", "token_burst"} {
 		if _, ok := limits[key]; ok {

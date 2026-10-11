@@ -20,6 +20,7 @@ func BenchmarkMemoryAllow(b *testing.B) {
 					b.Fatal(err)
 				}
 			}
+
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
@@ -42,6 +43,7 @@ func BenchmarkMemoryAllowParallel(b *testing.B) {
 					b.Fatal(err)
 				}
 			}
+
 			var worker atomic.Uint64
 			b.ReportAllocs()
 			b.ResetTimer()

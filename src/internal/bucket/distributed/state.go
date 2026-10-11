@@ -45,11 +45,13 @@ func (f *distributedFSM) Apply(log *raft.Log) any {
 	if err := json.Unmarshal(log.Data, &command); err != nil {
 		return bucket.ErrUnavailable
 	}
+
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.states == nil {
 		f.states = make(map[string]distributedState)
 	}
+
 	if command.Now >= f.nextSweep {
 		for key, state := range f.states {
 			elapsed := time.Unix(0, command.Now).Sub(time.Unix(0, state.Updated)).Seconds()
@@ -60,6 +62,7 @@ func (f *distributedFSM) Apply(log *raft.Log) any {
 		}
 		f.nextSweep = command.Now + int64(time.Minute)
 	}
+
 	state := f.states[command.Account]
 	s := &state
 	defer func() { f.states[command.Account] = state }()
@@ -67,6 +70,7 @@ func (f *distributedFSM) Apply(log *raft.Log) any {
 		*s = distributedState{Initialized: true, Updated: command.Now,
 			Requests: float64(command.Limits.Burst), Tokens: float64(command.Limits.TokenBurst), Limits: command.Limits}
 	}
+
 	// Only the leader supplies time. Clamping prevents a backwards clock on a
 	// new leader from refilling the same interval twice.
 	now := max(s.Updated, command.Now)
@@ -80,12 +84,14 @@ func (f *distributedFSM) Apply(log *raft.Log) any {
 	s.Requests = math.Min(s.Requests, float64(command.Limits.Burst))
 	s.Tokens = math.Min(s.Tokens, float64(command.Limits.TokenBurst))
 	s.Limits, s.Updated = command.Limits, now
+
 	if command.Operation == "usage" {
 		if s.Limits.TokensPerSecond > 0 {
 			s.Tokens -= float64(command.Tokens)
 		}
 		return bucket.Decision{}
 	}
+
 	var retry time.Duration
 	if s.Requests < 1 {
 		retry = bucket.UsageRetry((1 - s.Requests) / s.Limits.RequestsPerSecond)
@@ -96,6 +102,7 @@ func (f *distributedFSM) Apply(log *raft.Log) any {
 	if retry > 0 {
 		return bucket.Decision{RetryAfter: retry}
 	}
+
 	s.Requests--
 	return bucket.Decision{Allowed: true}
 }
@@ -116,6 +123,7 @@ func (f *distributedFSM) Restore(reader io.ReadCloser) error {
 	if err = errors.Join(err, reader.Close()); err != nil {
 		return err
 	}
+
 	f.mu.Lock()
 	f.states = snapshot.States
 	f.nextSweep = snapshot.NextSweep

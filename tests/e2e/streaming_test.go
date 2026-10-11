@@ -24,6 +24,7 @@ var _ = Describe("streaming and process shutdown", func() {
 		upstream := newUpstream(func(writer http.ResponseWriter, req *http.Request) {
 			writer.Header().Set("Content-Type", "text/event-stream")
 			writeEvent(writer, "first")
+
 			select {
 			case <-nextEvent:
 				writeEvent(writer, "second")
@@ -31,13 +32,16 @@ var _ = Describe("streaming and process shutdown", func() {
 				close(canceled)
 				return
 			}
+
 			<-req.Context().Done()
 			close(canceled)
 		})
 		process := startRouter(ctx, upstream.URL, routerOptions{})
+
 		requestCtx, cancel := context.WithCancel(ctx)
 		defer cancel()
 		response := request(requestCtx, newHTTPClient(), http.MethodPost, process.url+"/v1/chat/completions", `{"stream":true}`, nil)
+
 		Expect(response.StatusCode).To(Equal(http.StatusOK))
 		Expect(response.Header.Get("Content-Type")).To(Equal("text/event-stream"))
 		reader := bufio.NewReader(response.Body)
@@ -45,6 +49,7 @@ var _ = Describe("streaming and process shutdown", func() {
 		// The upstream cannot produce the second event until the client receives the first.
 		close(nextEvent)
 		Expect(readEvent(reader)).To(Equal("data: second"))
+
 		cancel()
 		Expect(response.Body.Close()).To(Succeed())
 		Eventually(canceled, requestTimeout).Should(BeClosed())
@@ -56,6 +61,7 @@ var _ = Describe("streaming and process shutdown", func() {
 		upstream := newUpstream(func(writer http.ResponseWriter, req *http.Request) {
 			writer.Header().Set("Content-Type", "text/event-stream")
 			writeEvent(writer, "first")
+
 			select {
 			case <-finish:
 				writeEvent(writer, "[DONE]")
@@ -64,9 +70,11 @@ var _ = Describe("streaming and process shutdown", func() {
 			}
 		})
 		process := startRouter(ctx, upstream.URL, routerOptions{})
+
 		response := request(ctx, newHTTPClient(), http.MethodPost, process.url+"/v1/chat/completions", `{"stream":true}`, nil)
 		reader := bufio.NewReader(response.Body)
 		Expect(readEvent(reader)).To(Equal("data: first"))
+
 		Expect(process.session.Command.Process.Signal(syscall.SIGTERM)).To(Succeed())
 		Eventually(process.session.Err, requestTimeout).Should(gbytes.Say("shutting down HTTP listeners"))
 		Consistently(process.session, 150*time.Millisecond).ShouldNot(gexec.Exit(), func() string {
@@ -80,6 +88,7 @@ var _ = Describe("streaming and process shutdown", func() {
 				process.session.ExitCode(), upstreamCanceled, ctx.Err())
 		})
 		Expect(canceled).NotTo(BeClosed())
+
 		close(finish)
 		Expect(readEvent(reader)).To(Equal("data: [DONE]"))
 		remainder, err := io.ReadAll(reader)
@@ -97,12 +106,15 @@ var _ = Describe("streaming and process shutdown", func() {
 			close(canceled)
 		})
 		process := startRouter(ctx, upstream.URL, routerOptions{flags: []string{"--server-shutdown-timeout", "250ms"}})
+
 		response := request(ctx, newHTTPClient(), http.MethodPost, process.url+"/v1/chat/completions", `{"stream":true}`, nil)
 		reader := bufio.NewReader(response.Body)
 		Expect(readEvent(reader)).To(Equal("data: first"))
+
 		Expect(process.session.Command.Process.Signal(syscall.SIGTERM)).To(Succeed())
 		Eventually(process.session, requestTimeout).Should(gexec.Exit(1))
 		Expect(process.session.Err).To(gbytes.Say("HTTP shutdown: context deadline exceeded"))
+
 		_, err := io.ReadAll(reader)
 		Expect(err).To(HaveOccurred(), "forced shutdown must interrupt the unfinished chunked response")
 		Eventually(canceled, requestTimeout).Should(BeClosed())

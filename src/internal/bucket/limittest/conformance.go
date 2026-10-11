@@ -35,16 +35,20 @@ func RequireUsage(t *testing.T, l bucket.Limiter, tokens int64) {
 
 func testTokenUsageDebtAndRefill(t *testing.T, newLimiter Factory) {
 	l, advance := newLimiter(t, 1000, 3, 2, 4)
+
 	RequireDecision(t, l, true, 0)
 	RequireUsage(t, l, 7)
 	RequireDecision(t, l, false, 2*time.Second)
 	RequireDecision(t, l, false, 2*time.Second)
+
 	advance(1500 * time.Millisecond)
 	RequireDecision(t, l, false, 500*time.Millisecond)
+
 	advance(500 * time.Millisecond)
 	RequireDecision(t, l, true, 0)
 	RequireUsage(t, l, 1)
 	RequireDecision(t, l, false, 500*time.Millisecond)
+
 	advance(time.Hour)
 	RequireUsage(t, l, 4)
 	RequireDecision(t, l, false, 500*time.Millisecond)
@@ -61,11 +65,14 @@ func testTokenDenialPreservesRequestCapacity(t *testing.T, newLimiter Factory) {
 
 func testTokenRetryUsesSlowerLimit(t *testing.T, newLimiter Factory) {
 	l, advance := newLimiter(t, 0.5, 1, 1, 2)
+
 	RequireDecision(t, l, true, 0)
 	RequireUsage(t, l, 4)
 	RequireDecision(t, l, false, 3*time.Second)
+
 	advance(time.Second)
 	RequireDecision(t, l, false, 2*time.Second)
+
 	advance(2 * time.Second)
 	RequireDecision(t, l, true, 0)
 	RequireDecision(t, l, false, 2*time.Second)
@@ -82,6 +89,7 @@ func testTokenUsageChargedAfterAdmission(t *testing.T, newLimiter Factory) {
 
 func testTokenUsageConcurrentAccounting(t *testing.T, newLimiter Factory) {
 	l, _ := newLimiter(t, 100, 100, 1, 10)
+
 	var wg sync.WaitGroup
 	for range 30 {
 		wg.Go(func() {
@@ -91,6 +99,7 @@ func testTokenUsageConcurrentAccounting(t *testing.T, newLimiter Factory) {
 		})
 	}
 	wg.Wait()
+
 	RequireDecision(t, l, false, 21*time.Second)
 }
 
@@ -103,16 +112,19 @@ func testTokenUsageDisabled(t *testing.T, newLimiter Factory) {
 
 func testTokenUsageValidationCancellationAndClose(t *testing.T, newLimiter Factory) {
 	l, _ := newLimiter(t, 1, 1, 1, 1)
+
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if err := l.RecordUsage(ctx, 1); !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled usage: %v", err)
 	}
+
 	if err := l.RecordUsage(context.Background(), -1); !errors.Is(err, bucket.ErrInvalidUsage) {
 		t.Fatalf("negative usage: %v", err)
 	}
 	RequireUsage(t, l, 0)
 	RequireDecision(t, l, true, 0)
+
 	if err := l.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -123,8 +135,10 @@ func testTokenUsageValidationCancellationAndClose(t *testing.T, newLimiter Facto
 
 func testTokenUsageHugeDebt(t *testing.T, newLimiter Factory) {
 	l, _ := newLimiter(t, 1, 1, 1, 1)
+
 	RequireUsage(t, l, math.MaxInt64)
 	RequireUsage(t, l, math.MaxInt64)
+
 	decision, err := l.Allow(context.Background())
 	if err != nil || decision.Allowed || decision.RetryAfter < 100*365*24*time.Hour {
 		t.Fatalf("huge debt Allow = %+v, %v", decision, err)
@@ -133,13 +147,17 @@ func testTokenUsageHugeDebt(t *testing.T, newLimiter Factory) {
 
 func testLimitUpdatePreservesBalances(t *testing.T, newLimiter Factory) {
 	l, advance := newLimiter(t, 1, 2, 1, 5)
+
 	RequireDecision(t, l, true, 0)
 	RequireDecision(t, l, true, 0)
 	RequireUsage(t, l, 8)
+
 	l.(bucket.Reconfigurable).Update(config.LimitValues{RequestsPerSecond: 2, Burst: 10, TokensPerSecond: 2, TokenBurst: 20})
 	RequireDecision(t, l, false, 2*time.Second)
+
 	advance(time.Second)
 	RequireDecision(t, l, false, time.Second)
+
 	advance(time.Second)
 	RequireDecision(t, l, true, 0)
 	RequireUsage(t, l, 1)
@@ -157,6 +175,7 @@ func testLimitUpdateClampsCapacityAndEnablesUsage(t *testing.T, newLimiter Facto
 
 func testConcurrentLimitUpdates(t *testing.T, newLimiter Factory) {
 	l, _ := newLimiter(t, 100, 100, 100, 100)
+
 	var wg sync.WaitGroup
 	for i := range 20 {
 		wg.Go(func() {

@@ -15,6 +15,7 @@ func usageLimiterForTest(t *testing.T, rate float64, burst int, usageRate float6
 	now := time.Unix(1_700_000_000, 0)
 	s := miniredis.RunT(t)
 	s.SetTime(now)
+
 	cfg := redisConfig(s.Addr())
 	cfg.RequestsPerSecond, cfg.Burst = rate, burst
 	cfg.TokensPerSecond, cfg.TokenBurst = usageRate, usageBurst

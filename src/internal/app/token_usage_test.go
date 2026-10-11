@@ -48,6 +48,7 @@ func TestUpstreamUsageLimitsSubsequentRequests(t *testing.T) {
 					if backendName == "redis" {
 						cfg.RateLimit.Redis.Address = miniredis.RunT(t).Addr()
 					}
+
 					limiter, err := backend.New(t.Context(), cfg.RateLimit)
 					if err != nil {
 						t.Fatal(err)
@@ -57,6 +58,7 @@ func TestUpstreamUsageLimitsSubsequentRequests(t *testing.T) {
 							t.Error(err)
 						}
 					})
+
 					var forwarded atomic.Int64
 					status := test.status
 					if status == 0 {
@@ -74,12 +76,15 @@ func TestUpstreamUsageLimitsSubsequentRequests(t *testing.T) {
 							t.Error(err)
 						}
 					}), limiter, func(c *config.Config) { c.RateLimit = cfg.RateLimit })
+
 					handler := a.handler()
 					first := httptest.NewRecorder()
 					handler.ServeHTTP(first, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", nil))
+
 					if first.Code != status || first.Body.String() != test.body {
 						t.Fatalf("first response changed: status=%d body=%q", first.Code, first.Body.String())
 					}
+
 					second := httptest.NewRecorder()
 					handler.ServeHTTP(second, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil))
 					if test.denied {
@@ -129,8 +134,10 @@ func TestUsageObservationDisabled(t *testing.T) {
 					cfg.RateLimit.TokenBurst = 10
 				}
 			})
+
 			response := httptest.NewRecorder()
 			a.handler().ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil))
+
 			if response.Code != http.StatusOK {
 				t.Fatalf("status=%d", response.Code)
 			}
@@ -151,9 +158,11 @@ func TestRecordUsageSurvivesCancellationAndSanitizesFailure(t *testing.T) {
 			return errors.New("sensitive-backend-secret")
 		}},
 	}
+
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	a.recordUsage(ctx, 12)
+
 	if recorded != 12 || !strings.Contains(logs.String(), "token usage could not be recorded") {
 		t.Fatalf("usage=%d log=%q", recorded, logs.String())
 	}

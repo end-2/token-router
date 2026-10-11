@@ -44,6 +44,7 @@ func New(cfg config.Upstream, transportConfig config.Transport, logger *slog.Log
 	if err != nil {
 		return nil, err
 	}
+
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -66,11 +67,13 @@ func New(cfg config.Upstream, transportConfig config.Transport, logger *slog.Log
 			request.Out.URL.Opaque = ""
 			request.Out.URL.Fragment = ""
 			request.Out.RequestURI = ""
+
 			for key := range request.Out.Header {
 				if strings.EqualFold(key, "Forwarded") || (len(key) >= len("X-Forwarded-") && strings.EqualFold(key[:len("X-Forwarded-")], "X-Forwarded-")) {
 					delete(request.Out.Header, key)
 				}
 			}
+
 			if cfg.APIKey != "" {
 				request.Out.Header.Set("Authorization", authorization)
 			}
@@ -89,6 +92,7 @@ func New(cfg config.Upstream, transportConfig config.Transport, logger *slog.Log
 		},
 		ErrorHandler: handler.handleError,
 	}
+
 	for _, option := range options {
 		option(handler.proxy)
 	}
@@ -123,17 +127,20 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		handler.writeError(writer, http.StatusBadRequest, "unsupported_upgrade", "Protocol upgrades are not supported.")
 		return
 	}
+
 	// Keep response flushes from closing the body while the upstream transport still reads it.
 	if err := http.NewResponseController(writer).EnableFullDuplex(); err != nil && !errors.Is(err, http.ErrNotSupported) {
 		handler.logger.Error("full duplex HTTP could not be enabled")
 		handler.writeError(writer, http.StatusInternalServerError, "proxy_error", "The proxy could not prepare the request.")
 		return
 	}
+
 	if handler.requestTimeout > 0 {
 		ctx, cancel := context.WithTimeout(request.Context(), handler.requestTimeout)
 		defer cancel()
 		request = request.WithContext(ctx)
 	}
+
 	target, routeErr := handler.router.SelectTarget(writer, request)
 	if routeErr != nil {
 		if err := request.Context().Err(); err != nil {
@@ -143,6 +150,7 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		handler.writeError(writer, routeErr.Status, routeErr.Code, routeErr.Message)
 		return
 	}
+
 	request = request.WithContext(context.WithValue(request.Context(), upstreamTargetKey{}, target))
 	handler.proxy.ServeHTTP(writer, request)
 }
@@ -158,6 +166,7 @@ func (handler *Handler) handleError(writer http.ResponseWriter, request *http.Re
 	if errors.Is(request.Context().Err(), context.Canceled) {
 		return
 	}
+
 	status := http.StatusBadGateway
 	code := "upstream_error"
 	message := "The upstream request failed."
@@ -167,6 +176,7 @@ func (handler *Handler) handleError(writer http.ResponseWriter, request *http.Re
 		code = "upstream_timeout"
 		message = "The upstream request timed out."
 	}
+
 	handler.logger.WarnContext(request.Context(), "upstream request failed", "status", status, "code", code)
 	handler.writeError(writer, status, code, message)
 }
@@ -174,6 +184,7 @@ func (handler *Handler) handleError(writer http.ResponseWriter, request *http.Re
 func (handler *Handler) writeError(writer http.ResponseWriter, status int, code, message string) {
 	writer.Header().Set("Content-Type", "application/json")
 	writer.WriteHeader(status)
+
 	response := struct {
 		Error struct {
 			Message string `json:"message"`
@@ -184,6 +195,7 @@ func (handler *Handler) writeError(writer http.ResponseWriter, status int, code,
 	response.Error.Message = message
 	response.Error.Type = "proxy_error"
 	response.Error.Code = code
+
 	if err := json.NewEncoder(writer).Encode(response); err != nil {
 		handler.logger.Debug("proxy error response could not be written")
 	}

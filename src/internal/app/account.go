@@ -18,6 +18,7 @@ func accountIdentifier(r *http.Request, cfg config.Account) (string, bool) {
 	if len(values) != 1 || len(values[0]) > 16<<10 {
 		return "", false
 	}
+
 	var parts [2]string
 	count := 0
 	for part := range strings.FieldsSeq(values[0]) {
@@ -30,6 +31,7 @@ func accountIdentifier(r *http.Request, cfg config.Account) (string, bool) {
 	if count != len(parts) {
 		return "", false
 	}
+
 	var identifier string
 	switch {
 	case strings.EqualFold(parts[0], "Basic"):
@@ -37,6 +39,7 @@ func accountIdentifier(r *http.Request, cfg config.Account) (string, bool) {
 		if err != nil {
 			return "", false
 		}
+
 		var ok bool
 		identifier, _, ok = strings.Cut(string(decoded), ":")
 		if !ok {
@@ -51,10 +54,12 @@ func accountIdentifier(r *http.Request, cfg config.Account) (string, bool) {
 		if !ok || encoded == "" || strings.Contains(signature, ".") {
 			return "", false
 		}
+
 		payload, err := base64.RawURLEncoding.DecodeString(encoded)
 		if err != nil {
 			return "", false
 		}
+
 		var claims map[string]json.RawMessage
 		if err := json.Unmarshal(payload, &claims); err != nil {
 			return "", false
@@ -65,6 +70,7 @@ func accountIdentifier(r *http.Request, cfg config.Account) (string, bool) {
 	default:
 		return "", false
 	}
+
 	return identifier, len(identifier) <= 1024 && strings.TrimSpace(identifier) != "" &&
 		utf8.ValidString(identifier) && strings.IndexFunc(identifier, unicode.IsControl) < 0
 }

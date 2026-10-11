@@ -23,12 +23,14 @@ func benchmarkTelemetry(b *testing.B, logs bool, level string, metrics bool) *Te
 	if err != nil {
 		b.Fatal(err)
 	}
+
 	if metrics {
 		telemetry.metrics = sdkmetric.NewMeterProvider(sdkmetric.WithReader(sdkmetric.NewManualReader()))
 		if err := telemetry.createInstruments(telemetry.metrics.Meter(instrumentationName)); err != nil {
 			b.Fatal(err)
 		}
 	}
+
 	b.Cleanup(func() {
 		if err := telemetry.Shutdown(context.Background()); err != nil {
 			b.Error(err)
@@ -54,8 +56,10 @@ func BenchmarkTelemetryMiddleware(b *testing.B) {
 			e := echo.New()
 			e.Use(telemetry.Middleware)
 			e.GET("/v1/*", func(c *echo.Context) error { return c.NoContent(http.StatusOK) })
+
 			request := httptest.NewRequestWithContext(b.Context(), http.MethodGet, "/v1/models", nil)
 			response := httptest.NewRecorder()
+
 			b.ReportAllocs()
 			for b.Loop() {
 				e.ServeHTTP(response, request)
@@ -100,8 +104,10 @@ func BenchmarkTracedTransport(b *testing.B) {
 					return &http.Response{StatusCode: http.StatusOK, Body: benchmarkBody{}}, nil
 				}),
 			}
+
 			request := httptest.NewRequestWithContext(b.Context(), http.MethodPost, "http://upstream/v1/chat/completions", nil)
 			request.Header.Set("Authorization", "Bearer benchmark-token")
+
 			b.ReportAllocs()
 			for b.Loop() {
 				response, err := transport.RoundTrip(request)

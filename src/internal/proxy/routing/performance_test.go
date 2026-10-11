@@ -26,12 +26,14 @@ func BenchmarkRouting(b *testing.B) {
 			if err != nil {
 				b.Fatal(err)
 			}
+
 			request := httptest.NewRequestWithContext(b.Context(), http.MethodPost, "http://api.example.com/v1/responses", nil)
 			request.Header.Set("Content-Type", "application/json")
 			request.ContentLength = int64(len(test.payload))
 			reader := strings.NewReader(test.payload)
 			body := io.NopCloser(reader)
 			writer := httptest.NewRecorder()
+
 			b.ReportAllocs()
 			b.ResetTimer()
 			for b.Loop() {

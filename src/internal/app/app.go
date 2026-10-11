@@ -47,6 +47,7 @@ func Run(ctx context.Context, cfg config.Config) (err error) {
 	if err := cfg.Validate(); err != nil {
 		return fmt.Errorf("validate configuration: %w", err)
 	}
+
 	telemetry, err := telemetry.New(ctx, cfg.Telemetry, os.Stderr)
 	if err != nil {
 		return fmt.Errorf("initialize telemetry: %w", err)
@@ -59,11 +60,13 @@ func Run(ctx context.Context, cfg config.Config) (err error) {
 		}
 	}()
 	logger := telemetry.Logger()
+
 	limiter, err := backend.New(ctx, cfg.RateLimit)
 	if err != nil {
 		return fmt.Errorf("initialize rate limiter: %w", err)
 	}
 	defer func() { err = errors.Join(err, limiter.Close()) }()
+
 	a := &application{cfg: cfg, logger: logger, limiter: limiter, telemetry: telemetry, current: cfg.Mutable()}
 	upstream, err := a.newProxy()
 	if err != nil {
@@ -76,12 +79,14 @@ func Run(ctx context.Context, cfg config.Config) (err error) {
 		a.policyClosed = true
 		a.proxy.retire()
 	}()
+
 	if cfg.Telemetry.Metrics.Enabled && cfg.Telemetry.Metrics.Prometheus.Enabled {
 		a.metrics, err = prometheus.New()
 		if err != nil {
 			return fmt.Errorf("initialize metrics: %w", err)
 		}
 	}
+
 	return a.serve(ctx)
 }
 
@@ -97,6 +102,7 @@ func (a *application) newProxyFor(cfg config.PolicyConfig) (*proxy.Handler, erro
 	if a.cfg.RateLimit.Enabled && cfg.RateLimit.TokensPerSecond > 0 {
 		options = append(options, proxy.WithUsageRecorder(a.recordUsage))
 	}
+
 	return proxy.New(cfg.Upstream, a.cfg.Transport, a.logger, options...)
 }
 
@@ -111,6 +117,7 @@ func (a *application) recordUsage(ctx context.Context, tokens int64) {
 func (a *application) handler() http.Handler {
 	e := echo.New()
 	e.Logger = a.logger
+
 	if a.telemetry != nil {
 		e.Use(a.telemetry.Middleware)
 	}
@@ -118,6 +125,7 @@ func (a *application) handler() http.Handler {
 		e.Use(a.metrics.Middleware)
 	}
 	e.Use(middleware.Recover())
+
 	e.GET("/healthz", func(c *echo.Context) error {
 		return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
 	})
@@ -127,6 +135,7 @@ func (a *application) handler() http.Handler {
 		}
 		return c.JSON(http.StatusOK, map[string]string{"status": "ready"})
 	})
+
 	e.Any("/v1", a.forward)
 	e.Any("/v1/*", a.forward)
 	return e
@@ -136,6 +145,7 @@ func (a *application) forward(c *echo.Context) error {
 	if !a.ready.Load() {
 		return apiError(c, http.StatusServiceUnavailable, "server_unavailable", "Server is shutting down")
 	}
+
 	// Admission and proxy selection observe the same update. Streams release this
 	// lock before forwarding so that an open response cannot block configuration.
 	a.policyMu.RLock()
@@ -147,17 +157,20 @@ func (a *application) forward(c *echo.Context) error {
 		}
 		c.SetRequest(c.Request().WithContext(bucket.WithAccount(c.Request().Context(), identifier)))
 	}
+
 	p := a.proxy
 	p.active.Add(1)
 	decision, err := a.limiter.Allow(c.Request().Context())
 	a.policyMu.RUnlock()
 	defer p.release()
+
 	if a.metrics != nil {
 		a.metrics.RecordLimit(decision.Allowed, err)
 	}
 	if a.telemetry != nil {
 		a.telemetry.RecordLimit(c.Request().Context(), decision.Allowed, err)
 	}
+
 	if err != nil {
 		a.logger.WarnContext(c.Request().Context(), "rate limiter unavailable")
 		return apiError(c, http.StatusServiceUnavailable, "rate_limiter_unavailable", "Rate limiter is unavailable")
@@ -167,6 +180,7 @@ func (a *application) forward(c *echo.Context) error {
 		c.Response().Header().Set("Retry-After", strconv.Itoa(retry))
 		return apiError(c, http.StatusTooManyRequests, "rate_limit_exceeded", "Rate limit exceeded")
 	}
+
 	p.handler.ServeHTTP(proxyResponseWriter{ResponseWriter: c.Response()}, c.Request())
 	return nil
 }
@@ -181,6 +195,7 @@ func (a *application) serve(ctx context.Context) error {
 	// Request contexts survive the termination signal so that HTTP Shutdown can drain them.
 	requestCtx, cancelRequests := context.WithCancel(context.WithoutCancel(ctx))
 	defer cancelRequests()
+
 	servers := []*http.Server{{
 		Addr: a.cfg.Server.Address, Handler: a.handler(),
 		ReadHeaderTimeout: a.cfg.Server.ReadHeaderTimeout, ReadTimeout: a.cfg.Server.ReadTimeout,
@@ -211,6 +226,7 @@ func (a *application) serve(ctx context.Context) error {
 			ErrorLog:    slog.NewLogLogger(a.logger.Handler(), slog.LevelError),
 		})
 	}
+
 	listeners := make([]net.Listener, 0, len(servers))
 	for _, server := range servers {
 		listener, err := (&net.ListenConfig{}).Listen(ctx, "tcp", server.Addr)
@@ -223,6 +239,7 @@ func (a *application) serve(ctx context.Context) error {
 		}
 		listeners = append(listeners, listener)
 	}
+
 	watchCtx, stopWatch := context.WithCancel(ctx)
 	watchDone := make(chan struct{})
 	go func() {
@@ -233,6 +250,7 @@ func (a *application) serve(ctx context.Context) error {
 		stopWatch()
 		<-watchDone
 	}()
+
 	return a.serveListeners(ctx, servers, listeners, cancelRequests)
 }
 
@@ -245,6 +263,7 @@ func (a *application) serveListeners(ctx context.Context, servers []*http.Server
 		}()
 		a.logger.Info("HTTP listener started", "address", listeners[i].Addr().String())
 	}
+
 	pending := len(servers)
 	var serveErr error
 	select {
@@ -255,10 +274,12 @@ func (a *application) serveListeners(ctx context.Context, servers []*http.Server
 			serveErr = nil
 		}
 	}
+
 	a.ready.Store(false)
 	a.policyMu.Lock()
 	a.policyClosed = true
 	a.policyMu.Unlock()
+
 	a.logger.Info("shutting down HTTP listeners", "timeout", a.cfg.Server.ShutdownTimeout)
 	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), a.cfg.Server.ShutdownTimeout)
 	defer cancel()
@@ -274,6 +295,7 @@ func (a *application) serveListeners(ctx context.Context, servers []*http.Server
 	}
 	wg.Wait()
 	cancelRequests()
+
 	for range pending {
 		if err := <-results; !errors.Is(err, http.ErrServerClosed) {
 			serveErr = errors.Join(serveErr, err)

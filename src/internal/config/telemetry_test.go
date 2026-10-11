@@ -20,6 +20,7 @@ func TestTelemetryConfigurationLayers(t *testing.T) {
   logs:
     enabled: false
 `)
+
 	cfg, err := Load(Options{
 		Path: path, PathExplicit: true,
 		LookupEnv: lookup(map[string]string{
@@ -36,6 +37,7 @@ func TestTelemetryConfigurationLayers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if !cfg.Telemetry.OTLP.Enabled || cfg.Telemetry.ServiceName != "cli-service" || cfg.Telemetry.OTLP.Endpoint != "http://collector:4318/gateway" {
 		t.Fatal("telemetry configuration did not follow layer precedence")
 	}
@@ -95,10 +97,12 @@ func TestLocalTelemetryConfigurationLayers(t *testing.T) {
 					"telemetry.logs.format":                "text",
 				}
 			}
+
 			cfg, err := Load(options)
 			if err != nil {
 				t.Fatal(err)
 			}
+
 			if cfg.Telemetry.OTLP.Enabled || !cfg.Telemetry.Metrics.Enabled {
 				t.Fatal("OTLP must default to disabled while metrics default to enabled")
 			}
@@ -133,12 +137,14 @@ func TestTelemetryValidation(t *testing.T) {
 			cfg := Defaults()
 			cfg.Telemetry.OTLP.Enabled = true
 			test.change(&cfg.Telemetry)
+
 			err := cfg.Validate()
 			if err == nil || strings.Contains(err.Error(), "secret-value") {
 				t.Fatalf("expected a sanitized telemetry validation error, got %v", err)
 			}
 		})
 	}
+
 	for _, ratio := range []float64{0, 0.5, 1} {
 		cfg := Defaults()
 		cfg.Telemetry.OTLP.Enabled = true

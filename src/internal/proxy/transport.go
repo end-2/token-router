@@ -11,11 +11,13 @@ func newTransport(cfg config.Transport) (*http.Transport, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
+
 	keepAlive := cfg.TCPKeepAlive
 	if keepAlive == 0 {
 		// net.Dialer uses a negative interval to disable TCP keep-alive probes.
 		keepAlive = -1
 	}
+
 	return &http.Transport{
 		// Direct routing and transparent response bodies are proxy invariants.
 		Proxy:                  nil,

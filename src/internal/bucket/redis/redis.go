@@ -94,6 +94,7 @@ func New(ctx context.Context, cfg config.RateLimit) (*Limiter, error) {
 	if rc.Address == "" || rc.Key == "" || rc.DB < 0 || rc.DialTimeout <= 0 || rc.ReadTimeout <= 0 || rc.WriteTimeout <= 0 {
 		return nil, errors.New("redis rate limit requires address, key, nonnegative DB and positive timeouts")
 	}
+
 	opts := &redis.Options{
 		Addr:                  rc.Address,
 		Username:              rc.Username,
@@ -109,6 +110,7 @@ func New(ctx context.Context, cfg config.RateLimit) (*Limiter, error) {
 	if rc.TLS {
 		opts.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}
 	}
+
 	l := &Limiter{
 		client:     redis.NewClient(opts),
 		key:        rc.Key,
@@ -119,6 +121,7 @@ func New(ctx context.Context, cfg config.RateLimit) (*Limiter, error) {
 		usageBurst: cfg.TokenBurst,
 		timeout:    max(rc.DialTimeout, rc.ReadTimeout, rc.WriteTimeout),
 	}
+
 	pingCtx, cancel := context.WithTimeout(ctx, l.timeout)
 	defer cancel()
 	if err := l.client.Ping(pingCtx).Err(); err != nil {
@@ -139,12 +142,14 @@ func (l *Limiter) Allow(ctx context.Context) (bucket.Decision, error) {
 	if l.closed.Load() {
 		return bucket.Decision{}, bucket.ErrClosed
 	}
+
 	commandCtx, cancel := context.WithTimeout(ctx, l.timeout)
 	defer cancel()
 	values, err := l.run(commandCtx, "allow", 0)
 	if err != nil {
 		return bucket.Decision{}, backendError(commandCtx, "allow")
 	}
+
 	if len(values) != 2 || (values[0] != 0 && values[0] != 1) || values[1] < 0 || values[1] > math.MaxInt64/int64(time.Millisecond) {
 		return bucket.Decision{}, bucket.ErrUnavailable
 	}
@@ -162,12 +167,14 @@ func (l *Limiter) RecordUsage(ctx context.Context, tokens int64) error {
 	if tokens < 0 {
 		return bucket.ErrInvalidUsage
 	}
+
 	l.mu.RLock()
 	usageRate := l.usageRate
 	l.mu.RUnlock()
 	if usageRate == 0 || tokens == 0 {
 		return nil
 	}
+
 	commandCtx, cancel := context.WithTimeout(ctx, l.timeout)
 	defer cancel()
 	if _, err := l.run(commandCtx, "usage", tokens); err != nil {
@@ -183,6 +190,7 @@ func (l *Limiter) run(ctx context.Context, operation string, tokens int64) ([]in
 	if account := bucket.AccountKey(ctx); account != "" {
 		key += ":account:" + account
 	}
+
 	return tokenScript.Run(ctx, l.client, []string{key}, l.rate, l.burst, l.ttl,
 		l.usageRate, l.usageBurst, operation, tokens, math.MaxInt64/int64(time.Millisecond)).Int64Slice()
 }

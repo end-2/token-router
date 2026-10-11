@@ -21,8 +21,10 @@ func TestServeCommands(t *testing.T) {
 			}
 			t.Setenv("TOKEN_ROUTER_SERVER_ADDRESS", ":8102")
 			t.Setenv("TOKEN_ROUTER_UPSTREAM_API_KEY", "environment-secret")
+
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
+
 			called := false
 			root := NewCommand(func(gotContext context.Context, cfg config.Config) error {
 				called = true
@@ -34,6 +36,7 @@ func TestServeCommands(t *testing.T) {
 				}
 				return nil
 			})
+
 			args := []string{"--server-address=:8103", "--telemetry-metrics-prometheus-enabled=false", "--server-write-timeout=0s", "--upstream-api-key="}
 			if command == "serve" {
 				args = append([]string{"serve"}, args...)
@@ -42,6 +45,7 @@ func TestServeCommands(t *testing.T) {
 			if err := root.ExecuteContext(ctx); err != nil {
 				t.Fatal(err)
 			}
+
 			if !called {
 				t.Error("server callback was not called")
 			}
@@ -53,12 +57,14 @@ func TestUnchangedFlagsDoNotOverrideEnvironment(t *testing.T) {
 	isolatedEnvironment(t)
 	t.Setenv("TOKEN_ROUTER_SERVER_ADDRESS", ":8123")
 	t.Setenv("TOKEN_ROUTER_TELEMETRY_METRICS_PROMETHEUS_ENABLED", "false")
+
 	root := NewCommand(func(_ context.Context, cfg config.Config) error {
 		if cfg.Server.Address != ":8123" || cfg.Telemetry.Metrics.Prometheus.Enabled {
 			t.Error("unchanged flags overrode environment")
 		}
 		return nil
 	})
+
 	root.SetArgs(nil)
 	if err := root.Execute(); err != nil {
 		t.Fatal(err)
@@ -68,12 +74,14 @@ func TestUnchangedFlagsDoNotOverrideEnvironment(t *testing.T) {
 func TestBooleanFlagWithoutValue(t *testing.T) {
 	isolatedEnvironment(t)
 	t.Setenv("TOKEN_ROUTER_TELEMETRY_METRICS_PROMETHEUS_ENABLED", "false")
+
 	root := NewCommand(func(_ context.Context, cfg config.Config) error {
 		if !cfg.Telemetry.Metrics.Prometheus.Enabled {
 			t.Error("boolean flag without value did not enable metrics")
 		}
 		return nil
 	})
+
 	root.SetArgs([]string{"--telemetry-metrics-prometheus-enabled"})
 	if err := root.Execute(); err != nil {
 		t.Fatal(err)
@@ -88,10 +96,12 @@ func TestValidateCommand(t *testing.T) {
 		return nil
 	})
 	root.SetOut(&output)
+
 	root.SetArgs([]string{"validate"})
 	if err := root.Execute(); err != nil {
 		t.Fatal(err)
 	}
+
 	if output.String() != "configuration is valid\n" {
 		t.Errorf("unexpected validation output %q", output.String())
 	}
@@ -100,6 +110,7 @@ func TestValidateCommand(t *testing.T) {
 func TestTransportFlags(t *testing.T) {
 	isolatedEnvironment(t)
 	t.Setenv("TOKEN_ROUTER_TRANSPORT_MAX_CONNS_PER_HOST", "20")
+
 	root := NewCommand(func(_ context.Context, cfg config.Config) error {
 		if cfg.Transport.MaxConnsPerHost != 30 || cfg.Transport.ForceAttemptHTTP2 ||
 			!cfg.Transport.DisableKeepAlives || cfg.Transport.MaxResponseHeaderBytes != 1<<33 {
@@ -107,6 +118,7 @@ func TestTransportFlags(t *testing.T) {
 		}
 		return nil
 	})
+
 	root.SetArgs([]string{"serve", "--transport-max-conns-per-host=30", "--transport-force-attempt-http2=false",
 		"--transport-disable-keep-alives", "--transport-max-response-header-bytes=8589934592"})
 	if err := root.Execute(); err != nil {
@@ -121,12 +133,14 @@ func TestConfigFlagTakesPriorityOverEnvironment(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("TOKEN_ROUTER_CONFIG", "missing-environment.yaml")
+
 	root := NewCommand(func(_ context.Context, cfg config.Config) error {
 		if cfg.Server.Address != ":8123" {
 			t.Error("explicit config path was not selected")
 		}
 		return nil
 	})
+
 	root.SetArgs([]string{"--config", path, "serve"})
 	if err := root.Execute(); err != nil {
 		t.Fatal(err)
@@ -151,8 +165,10 @@ func TestErrorsDoNotPrintConfigurationValues(t *testing.T) {
 			})
 			root.SetOut(&output)
 			root.SetErr(&output)
+
 			root.SetArgs(args)
 			err := root.Execute()
+
 			if err == nil {
 				t.Fatal("expected error")
 			}
@@ -167,6 +183,7 @@ func TestServerErrorsAreReturned(t *testing.T) {
 	isolatedEnvironment(t)
 	want := errors.New("server stopped")
 	root := NewCommand(func(context.Context, config.Config) error { return want })
+
 	root.SetArgs(nil)
 	if err := root.Execute(); !errors.Is(err, want) {
 		t.Errorf("Execute returned %v, want server error", err)

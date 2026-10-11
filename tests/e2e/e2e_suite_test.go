@@ -45,6 +45,7 @@ var _ = BeforeSuite(func(ctx SpecContext) {
 		ContextTimeoutEnabled: true, MaxRetries: -1,
 	})
 	DeferCleanup(redisClient.Close)
+
 	pingCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	Expect(redisClient.Ping(pingCtx).Err()).To(Succeed(), "the E2E Redis server must be reachable")
@@ -63,6 +64,7 @@ var _ = BeforeSuite(func(ctx SpecContext) {
 		Expect(endpoint.Scheme).To(Equal("http"), "%s must use the test HTTP endpoint", key)
 		Expect(endpoint.Host).NotTo(BeEmpty())
 	}
+
 	client := newHTTPClient()
 	for _, endpoint := range []string{
 		telemetry.collectorHealth,

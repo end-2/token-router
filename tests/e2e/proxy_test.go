@@ -24,6 +24,7 @@ var _ = Describe("the running proxy", func() {
 			authorization <- req.Header.Get("Authorization")
 			writer.WriteHeader(http.StatusNoContent)
 		})
+
 		for _, scenario := range []struct {
 			name     string
 			options  routerOptions
@@ -43,9 +44,11 @@ var _ = Describe("the running proxy", func() {
 		} {
 			By(scenario.name)
 			process := startRouter(ctx, upstream.URL, scenario.options)
+
 			response := request(ctx, newHTTPClient(), http.MethodGet, process.url+"/v1/models", "", map[string]string{
 				"Authorization": "Bearer client-key",
 			})
+
 			Expect(response.StatusCode).To(Equal(http.StatusNoContent))
 			Eventually(authorization, requestTimeout).Should(Receive(Equal(scenario.expected)))
 		}
@@ -63,19 +66,23 @@ var _ = Describe("the running proxy", func() {
 				method: req.Method, uri: req.RequestURI, body: string(body), contentType: req.Header.Get("Content-Type"),
 				organization: req.Header.Get("OpenAI-Organization"), project: req.Header.Get("OpenAI-Project"),
 			}
+
 			writer.Header().Set("Content-Type", "application/json")
 			writer.Header().Set("X-Request-ID", "upstream-request-id")
 			writer.Header().Set("Retry-After", "7")
 			writer.WriteHeader(http.StatusTooManyRequests)
 			writeBody(writer, `{"error":{"code":"insufficient_quota"}}`)
 		})
+
 		process := startRouter(ctx, upstream.URL+"/gateway", routerOptions{flags: []string{
 			"--upstream-organization", "test-org", "--upstream-project", "test-project",
 		}})
+
 		body := `{"model":"test-model","messages":[{"role":"user","content":"hello"}]}`
 		response := request(ctx, newHTTPClient(), http.MethodPost,
 			process.url+"/v1/chat/completions?trace=a%2Fb&tag=one&tag=two", body,
 			map[string]string{"Content-Type": "application/json"})
+
 		Expect(response.StatusCode).To(Equal(http.StatusTooManyRequests))
 		Expect(response.Header.Get("X-Request-ID")).To(Equal("upstream-request-id"))
 		Expect(response.Header.Get("Retry-After")).To(Equal("7"))
@@ -94,14 +101,17 @@ var _ = Describe("the running proxy", func() {
 		})
 		process := startRouter(ctx, upstream.URL, routerOptions{flags: []string{"--telemetry-metrics-prometheus-path", "/observe"}})
 		client := newHTTPClient()
+
 		for path, expected := range map[string]string{"/healthz": "ok", "/readyz": "ready"} {
 			response := request(ctx, client, http.MethodGet, process.url+path, "", nil)
 			Expect(response.StatusCode).To(Equal(http.StatusOK))
 			Expect(readBody(response)).To(MatchJSON(fmt.Sprintf(`{"status":%q}`, expected)))
 		}
+
 		response := request(ctx, client, http.MethodGet, process.url+"/v1/models", "", nil)
 		Expect(response.StatusCode).To(Equal(http.StatusOK))
 		Expect(readBody(response)).To(MatchJSON(`{"data":[]}`))
+
 		Eventually(func(g Gomega) {
 			metrics := request(ctx, client, http.MethodGet, process.metricsURL+"/observe", "", nil)
 			g.Expect(metrics.StatusCode).To(Equal(http.StatusOK))
@@ -110,6 +120,7 @@ var _ = Describe("the running proxy", func() {
 			g.Expect(body).To(ContainSubstring(`token_router_rate_limit_decisions_total{result="allowed"} 1`))
 			g.Expect(body).To(ContainSubstring("go_goroutines"))
 		}, requestTimeout).Should(Succeed())
+
 		Expect(request(ctx, client, http.MethodGet, process.url+"/observe", "", nil).StatusCode).To(Equal(http.StatusNotFound))
 		Expect(request(ctx, client, http.MethodGet, process.metricsURL+"/metrics", "", nil).StatusCode).To(Equal(http.StatusNotFound))
 	}, SpecTimeout(15*time.Second))
@@ -121,7 +132,9 @@ var _ = Describe("the running proxy", func() {
 			close(canceled)
 		})
 		process := startRouter(ctx, upstream.URL, routerOptions{flags: []string{"--transport-response-header-timeout", "100ms"}})
+
 		response := request(ctx, newHTTPClient(), http.MethodGet, process.url+"/v1/models", "", nil)
+
 		Expect(response.StatusCode).To(Equal(http.StatusGatewayTimeout))
 		Expect(readBody(response)).To(MatchJSON(`{"error":{"message":"The upstream request timed out.","type":"proxy_error","code":"upstream_timeout"}}`))
 		Eventually(canceled, requestTimeout).Should(BeClosed())
@@ -138,9 +151,11 @@ var _ = Describe("the running proxy", func() {
 			"TOKEN_ROUTER_RATE_LIMIT_REQUESTS_PER_SECOND": "0.001", "TOKEN_ROUTER_RATE_LIMIT_BURST": "1",
 		}})
 		client := newHTTPClient()
+
 		Expect(request(ctx, client, http.MethodGet, process.url+"/v1/models", "", nil).StatusCode).To(Equal(http.StatusNoContent))
 		response := request(ctx, client, http.MethodGet, process.url+"/v1/models", "", nil)
 		Expect(response.StatusCode).To(Equal(http.StatusTooManyRequests))
+
 		retry, err := strconv.Atoi(response.Header.Get("Retry-After"))
 		Expect(err).NotTo(HaveOccurred())
 		Expect(retry).To(BeNumerically(">", 0))
@@ -158,6 +173,7 @@ var _ = Describe("the running proxy", func() {
 		first := startRouter(ctx, upstream.URL, options)
 		second := startRouter(ctx, upstream.URL, options)
 		client := newHTTPClient()
+
 		const count = 30
 		type outcome struct {
 			status int
@@ -189,6 +205,7 @@ var _ = Describe("the running proxy", func() {
 		close(start)
 		workers.Wait()
 		close(results)
+
 		allowed, denied := 0, 0
 		for result := range results {
 			Expect(result.err).NotTo(HaveOccurred())
@@ -201,6 +218,7 @@ var _ = Describe("the running proxy", func() {
 				Fail(fmt.Sprintf("unexpected proxy status: %d", result.status))
 			}
 		}
+
 		Expect(allowed).To(Equal(5))
 		Expect(denied).To(Equal(count - 5))
 		Expect(forwarded.Load()).To(Equal(int64(5)))
@@ -217,6 +235,7 @@ var _ = Describe("the running proxy", func() {
 		// A wrong-type key causes an actual Redis command error without changing the shared server.
 		Expect(redisClient.Set(ctx, key, "invalid-bucket-type", time.Minute).Err()).To(Succeed())
 		response := request(ctx, newHTTPClient(), http.MethodGet, process.url+"/v1/models", "", nil)
+
 		Expect(response.StatusCode).To(Equal(http.StatusServiceUnavailable))
 		Expect(readBody(response)).To(MatchJSON(`{"error":{"type":"rate_limiter_unavailable","code":"rate_limiter_unavailable","message":"Rate limiter is unavailable"}}`))
 		Expect(forwarded.Load()).To(BeZero())

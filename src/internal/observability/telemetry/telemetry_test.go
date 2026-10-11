@@ -51,9 +51,11 @@ func newCapture(t *testing.T) (*telemetryCapture, *httptest.Server) {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
+
 		capture.mu.Lock()
 		defer capture.mu.Unlock()
 		capture.requests = append(capture.requests, r.URL.Path)
+
 		var message proto.Message
 		switch r.URL.Path {
 		case "/otlp/v1/traces":
@@ -78,6 +80,7 @@ func newCapture(t *testing.T) (*telemetryCapture, *httptest.Server) {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
+
 		w.Header().Set("Content-Type", "application/x-protobuf")
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -115,6 +118,7 @@ func TestTelemetryExportsCorrelatedSanitizedSignalsOnShutdown(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { shutdownTelemetry(t, telemetry) })
+
 	const incomingTrace = "0af7651916cd43dd8448eb211c80319c"
 	const incomingParent = "b7ad6b7169203331"
 	upstreamParents := make(chan string, 1)
@@ -126,6 +130,7 @@ func TestTelemetryExportsCorrelatedSanitizedSignalsOnShutdown(t *testing.T) {
 		}
 	}))
 	defer upstream.Close()
+
 	client := &http.Client{Transport: telemetry.Transport(http.DefaultTransport), Timeout: time.Second}
 	e := echo.New()
 	e.Use(telemetry.Middleware)
@@ -145,24 +150,30 @@ func TestTelemetryExportsCorrelatedSanitizedSignalsOnShutdown(t *testing.T) {
 				t.Errorf("close response: %v", err)
 			}
 		}()
+
 		c.Response().WriteHeader(response.StatusCode)
 		_, err = io.Copy(c.Response(), response.Body)
 		return err
 	})
+
 	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/private-path?token=private-query", strings.NewReader("private-body"))
 	request.Header.Set("traceparent", "00-"+incomingTrace+"-"+incomingParent+"-01")
 	response := httptest.NewRecorder()
 	e.ServeHTTP(response, request)
+
 	if response.Code != http.StatusCreated || response.Body.String() != "private-response" {
 		t.Fatalf("proxy response: %d %s", response.Code, response.Body.String())
 	}
+
 	telemetry.Logger().Debug("filtered log")
 	shutdownTelemetry(t, telemetry)
 	capture.mu.Lock()
 	defer capture.mu.Unlock()
+
 	if len(capture.traces) == 0 || len(capture.metrics) == 0 || len(capture.logs) == 0 {
 		t.Fatalf("missing signals: traces=%d metrics=%d logs=%d", len(capture.traces), len(capture.metrics), len(capture.logs))
 	}
+
 	spans := capture.spans()
 	if len(spans) != 2 {
 		t.Fatalf("span count=%d", len(spans))
@@ -187,6 +198,7 @@ func TestTelemetryExportsCorrelatedSanitizedSignalsOnShutdown(t *testing.T) {
 	if upstreamParent := <-upstreamParents; upstreamParent != "00-"+incomingTrace+"-"+hex.EncodeToString(clientSpan.SpanId)+"-01" {
 		t.Fatalf("upstream traceparent=%s", upstreamParent)
 	}
+
 	var access map[string]any
 	if err := json.Unmarshal(output.Bytes(), &access); err != nil {
 		t.Fatalf("JSON log: %v: %s", err, output.String())
@@ -195,11 +207,13 @@ func TestTelemetryExportsCorrelatedSanitizedSignalsOnShutdown(t *testing.T) {
 		access["trace_id"] != incomingTrace || access["span_id"] != hex.EncodeToString(serverSpan.SpanId) || access["status"] != float64(http.StatusCreated) {
 		t.Fatalf("access log=%v", access)
 	}
+
 	logs := capture.logRecords()
 	if len(logs) != 1 || logs[0].Body.GetStringValue() != "HTTP request completed" ||
 		!bytes.Equal(logs[0].TraceId, serverSpan.TraceId) || !bytes.Equal(logs[0].SpanId, serverSpan.SpanId) {
 		t.Fatalf("OTLP logs=%v", logs)
 	}
+
 	metrics := capture.metricRecords()
 	for _, name := range []string{"token_router.http.requests", "token_router.http.request.duration", "token_router.http.requests.in_flight", "token_router.rate_limit.decisions"} {
 		if metrics[name] == nil {
@@ -225,11 +239,13 @@ func TestTelemetryExportsCorrelatedSanitizedSignalsOnShutdown(t *testing.T) {
 	if got := metrics["token_router.http.requests.in_flight"].GetSum().DataPoints[0].GetAsInt(); got != 0 {
 		t.Errorf("in flight=%d", got)
 	}
+
 	resourceAttrs := capture.traces[0].ResourceSpans[0].Resource.Attributes
 	if stringAttr(resourceAttrs, "service.name") != "test-router" || stringAttr(resourceAttrs, "service.version") != "test-version" ||
 		stringAttr(resourceAttrs, "deployment.environment.name") != "test" || stringAttr(resourceAttrs, "service.instance.id") == "" {
 		t.Fatalf("resource=%v", resourceAttrs)
 	}
+
 	for _, serialized := range []string{output.String(), protojson.Format(capture.traces[0]), protojson.Format(capture.metrics[0]), protojson.Format(capture.logs[0])} {
 		for _, secret := range []string{"private-path", "private-query", "private-body", "private-auth", "private-response", "filtered log"} {
 			if strings.Contains(serialized, secret) {
@@ -249,9 +265,11 @@ func TestLocalLogConfigurationWithoutOTLP(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+
 			telemetry.Logger().Info("filtered message")
 			telemetry.Logger().Warn("visible message")
 			shutdownTelemetry(t, telemetry)
+
 			if strings.Contains(output.String(), "filtered message") || !strings.Contains(output.String(), "visible message") {
 				t.Fatalf("log level was not applied: %s", output.String())
 			}
@@ -293,10 +311,12 @@ func TestTelemetrySignalSelectionAndInstanceIsolation(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+
 			e := echo.New()
 			e.Use(telemetry.Middleware)
 			e.ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), "PRIVATE_METHOD", "/private-identifier", nil))
 			shutdownTelemetry(t, telemetry)
+
 			capture.mu.Lock()
 			defer capture.mu.Unlock()
 			if (len(capture.traces) > 0) != (tc.enabled && tc.traces) || (len(capture.metrics) > 0) != (tc.enabled && tc.metrics) || (len(capture.logs) > 0) != (tc.enabled && tc.logs) {
@@ -338,6 +358,7 @@ func TestDisabledRequestTelemetryPreservesErrorHandling(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { shutdownTelemetry(t, telemetry) })
+
 			e := echo.New()
 			e.Use(telemetry.Middleware)
 			request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/failure", nil)
@@ -347,14 +368,17 @@ func TestDisabledRequestTelemetryPreservesErrorHandling(t *testing.T) {
 				}
 				return echo.NewHTTPError(http.StatusConflict, "conflict")
 			})
+
 			handleError := e.HTTPErrorHandler
 			errorCalls := 0
 			e.HTTPErrorHandler = func(c *echo.Context, err error) {
 				errorCalls++
 				handleError(c, err)
 			}
+
 			response := httptest.NewRecorder()
 			e.ServeHTTP(response, request)
+
 			if response.Code != http.StatusConflict || errorCalls != 1 || output.Len() != 0 {
 				t.Fatalf("status=%d error calls=%d output=%s", response.Code, errorCalls, output.String())
 			}
@@ -375,12 +399,14 @@ func TestUnsampledTransportPreservesPropagationAndResponse(t *testing.T) {
 					t.Error(err)
 				}
 			})
+
 			body := io.NopCloser(strings.NewReader("stream"))
 			response := &http.Response{StatusCode: http.StatusOK, Body: body}
 			var transportErr error
 			if failure {
 				response, transportErr = nil, io.ErrUnexpectedEOF
 			}
+
 			request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "http://upstream/v1/chat/completions", nil)
 			request.Header.Set("traceparent", "private-parent")
 			request.Header.Set("tracestate", "private-state")
@@ -394,6 +420,7 @@ func TestUnsampledTransportPreservesPropagationAndResponse(t *testing.T) {
 					return response, transportErr
 				}),
 			}
+
 			got, err := transport.RoundTrip(request)
 			if got != response || !errors.Is(err, transportErr) {
 				t.Fatalf("response=%v err=%v", got, err)
@@ -442,10 +469,12 @@ func TestTransportSpanEndsWithResponseBodyAndSanitizesErrors(t *testing.T) {
 				}
 				return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("data: first\n\n"))}, nil
 			})}
+
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			request := httptest.NewRequestWithContext(ctx, http.MethodPost, "http://upstream/private-query?token=secret", nil)
 			response, err := transport.RoundTrip(request)
+
 			if request.Header.Get("traceparent") != "" {
 				t.Error("original request headers mutated")
 			}
@@ -464,6 +493,7 @@ func TestTransportSpanEndsWithResponseBodyAndSanitizesErrors(t *testing.T) {
 			if len(exporter.GetSpans()) != 0 {
 				t.Fatal("client span ended before stream consumption")
 			}
+
 			if !tc.closeOnly {
 				if _, err := io.ReadAll(response.Body); err != nil {
 					t.Fatal(err)
@@ -472,9 +502,11 @@ func TestTransportSpanEndsWithResponseBodyAndSanitizesErrors(t *testing.T) {
 			if tc.canceled {
 				cancel()
 			}
+
 			if err := response.Body.Close(); err != nil {
 				t.Fatal(err)
 			}
+
 			if len(exporter.GetSpans()) != 1 {
 				t.Fatalf("span completion count=%d", len(exporter.GetSpans()))
 			}
@@ -501,19 +533,23 @@ func TestTelemetryShutdownDeadlineCancelsOngoingExport(t *testing.T) {
 		finished <- struct{}{}
 	}))
 	defer receiver.Close()
+
 	cfg := telemetryConfig(receiver.URL)
 	cfg.Metrics.Enabled, cfg.Logs.Enabled = false, false
 	telemetry, err := New(context.Background(), cfg, io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	_, span := telemetry.tracer.Start(context.Background(), "pending span")
 	span.End()
+
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 	if err := telemetry.Shutdown(ctx); err == nil {
 		t.Fatal("expected shutdown timeout")
 	}
+
 	select {
 	case <-started:
 	case <-time.After(time.Second):
@@ -537,14 +573,17 @@ func TestTelemetryExportFailureIsStructuredAndFailsShutdown(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	e := echo.New()
 	e.Use(telemetry.Middleware)
 	e.ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/secret", nil))
+
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	if err := telemetry.Shutdown(ctx); err == nil {
 		t.Fatal("shutdown succeeded although no signal was delivered")
 	}
+
 	decoder := json.NewDecoder(strings.NewReader(output.String()))
 	warnings := map[string]bool{}
 	for decoder.More() {
@@ -560,6 +599,7 @@ func TestTelemetryExportFailureIsStructuredAndFailsShutdown(t *testing.T) {
 			warnings[signal] = true
 		}
 	}
+
 	if len(warnings) != 3 || strings.Contains(output.String(), "private backend response") || strings.Contains(output.String(), receiver.URL) {
 		t.Fatalf("unsafe or missing failures: %s", output.String())
 	}
@@ -645,6 +685,7 @@ func TestConcurrentLimitMeasurements(t *testing.T) {
 	if err := telemetry.createInstruments(provider.Meter(instrumentationName)); err != nil {
 		t.Fatal(err)
 	}
+
 	const workers, decisions = 12, 20
 	var wg sync.WaitGroup
 	for range workers {
@@ -660,11 +701,13 @@ func TestConcurrentLimitMeasurements(t *testing.T) {
 		})
 	}
 	wg.Wait()
+
 	want := map[string]int64{"allowed": workers * decisions, "denied": workers * decisions, "error": workers * decisions}
 	var exported metricdata.ResourceMetrics
 	if err := reader.Collect(context.Background(), &exported); err != nil {
 		t.Fatal(err)
 	}
+
 	seen := map[string]int64{}
 	for _, scope := range exported.ScopeMetrics {
 		for _, measurement := range scope.Metrics {
@@ -680,6 +723,7 @@ func TestConcurrentLimitMeasurements(t *testing.T) {
 			}
 		}
 	}
+
 	if len(seen) != len(want) {
 		t.Fatalf("OTLP limit series=%v", seen)
 	}

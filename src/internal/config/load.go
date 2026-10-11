@@ -27,6 +27,7 @@ func Load(options Options) (Config, error) {
 	if lookup == nil {
 		lookup = os.LookupEnv
 	}
+
 	path := options.Path
 	explicit := options.PathExplicit
 	if !explicit {
@@ -40,6 +41,7 @@ func Load(options Options) (Config, error) {
 		}
 		path = "config.yaml"
 	}
+
 	data, err := os.ReadFile(path) //nolint:gosec // The operator explicitly selects the configuration file path.
 	if err != nil && (explicit || !errors.Is(err, os.ErrNotExist)) {
 		return Config{}, errors.New("cannot read configuration file")
@@ -49,6 +51,7 @@ func Load(options Options) (Config, error) {
 			return Config{}, err
 		}
 	}
+
 	settings := fields(&cfg)
 	known := make(map[string]field, len(settings))
 	for _, setting := range settings {
@@ -59,6 +62,7 @@ func Load(options Options) (Config, error) {
 			}
 		}
 	}
+
 	for key, value := range options.Overrides {
 		setting, ok := known[key]
 		if !ok {
@@ -68,9 +72,11 @@ func Load(options Options) (Config, error) {
 			return Config{}, fmt.Errorf("command-line override: %w", err)
 		}
 	}
+
 	if cfg.RateLimit.Memory.Distributed.DataDir != "" && !filepath.IsAbs(cfg.RateLimit.Memory.Distributed.DataDir) {
 		cfg.RateLimit.Memory.Distributed.DataDir = filepath.Join(filepath.Dir(path), cfg.RateLimit.Memory.Distributed.DataDir)
 	}
+
 	base := cfg.Mutable()
 	if cfg.Policy.File != "" {
 		cfg.policyBase = &base
@@ -81,16 +87,19 @@ func Load(options Options) (Config, error) {
 		if err != nil {
 			return Config{}, errors.New("cannot resolve policy configuration file")
 		}
+
 		data, err := ReadPolicyFile(cfg.Policy.File)
 		if err != nil {
 			return Config{}, err
 		}
+
 		mutable, err := DecodePolicy(data, base)
 		if err != nil {
 			return Config{}, err
 		}
 		cfg = mutable.Apply(cfg)
 	}
+
 	if err := cfg.Validate(); err != nil {
 		return Config{}, fmt.Errorf("invalid configuration: %w", err)
 	}
@@ -113,10 +122,12 @@ func decodeYAMLValue(data []byte, target any, kind yaml.Kind) error {
 	if containsNull(&document, make(map[*yaml.Node]bool)) {
 		return errors.New("configuration must not contain null values")
 	}
+
 	var extra yaml.Node
 	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
 		return errors.New("configuration must contain exactly one YAML document")
 	}
+
 	strict := yaml.NewDecoder(bytes.NewReader(data))
 	strict.KnownFields(true)
 	if err := strict.Decode(target); err != nil {

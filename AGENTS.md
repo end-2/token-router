@@ -68,7 +68,14 @@ docs/
 - Distinguish facts verified in code from inferences. When evidence is insufficient, state assumptions and unverified conditions and identify what needs further inspection.
 - Link supporting evidence to current code locations. Maintain implementation history in commits or `docs/history/`.
 
-## 5. Agent Workflow
+## 5. Code Readability
+
+- Use a single blank line between logical phases within a function, such as validation, initialization, processing, and response construction. Choose boundaries by purpose rather than statement type or line count.
+- Keep closely related statements together, including a call and its error check, resource acquisition and its cleanup registration, and assignments that prepare the same operation.
+- Keep short functions and cohesive blocks compact. Do not insert a blank line after every statement or condition, or before every return.
+- Apply these rules when writing or editing functions. Use `gofmt` for Go formatting, and review logical grouping manually.
+
+## 6. Agent Workflow
 
 1. Inspect the applicable `AGENTS.md`, documentation index, relevant code, and Git status.
 2. Identify differences between requirements and the current implementation, and inspect the code evidence needed for decisions.

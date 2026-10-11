@@ -26,6 +26,7 @@ var _ = Describe("upstream routing", func() {
 			})
 			addresses[name] = upstream.URL
 		}
+
 		process := startRouter(ctx, "", routerOptions{yaml: fmt.Sprintf(`upstream:
   routes:
     - host: "*"
@@ -44,6 +45,7 @@ var _ = Describe("upstream routing", func() {
       model: chat
       base_urls: [%q]
 `, addresses["default"], addresses["host"], addresses["model"], strings.TrimPrefix(addresses["first"], "http://"), addresses["second"], addresses["third"])})
+
 		client := newHTTPClient()
 		for _, scenario := range []struct{ host, model, want string }{
 			{"API.EXAMPLE.COM:8080", "chat", "first"},
@@ -59,9 +61,11 @@ var _ = Describe("upstream routing", func() {
 			Expect(err).NotTo(HaveOccurred())
 			req.Host = scenario.host
 			req.Header.Set("Content-Type", "application/json")
+
 			response, err := client.Do(req)
 			Expect(err).NotTo(HaveOccurred())
 			DeferCleanup(func() { Expect(response.Body.Close()).To(Succeed()) })
+
 			Expect(response.StatusCode).To(Equal(http.StatusOK))
 			Expect(response.Header.Get("X-Upstream")).To(Equal(scenario.want))
 			Expect(readBody(response)).To(Equal(body))
@@ -74,6 +78,7 @@ var _ = Describe("upstream routing", func() {
 			body, err := io.ReadAll(req.Body)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(string(body)).To(MatchJSON(`{"model":"chat","stream":true}`))
+
 			writer.Header().Set("Content-Type", "text/event-stream")
 			writeEvent(writer, `{"type":"response.created"}`)
 			select {
@@ -82,20 +87,24 @@ var _ = Describe("upstream routing", func() {
 			case <-req.Context().Done():
 			}
 		})
+
 		process := startRouter(ctx, "", routerOptions{flags: []string{
 			"--upstream-routes", fmt.Sprintf(`[{"model":"chat","base_urls":[%q]}]`, upstream.URL),
 			"--rate-limit-enabled=true", "--rate-limit-tokens-per-second=0.001", "--rate-limit-token-burst=10",
 		}})
+
 		client := newHTTPClient()
 		response := request(ctx, client, http.MethodPost, process.url+"/v1/responses", `{"model":"chat","stream":true}`, nil)
 		Expect(response.StatusCode).To(Equal(http.StatusOK))
 		reader := bufio.NewReader(response.Body)
 		Expect(readEvent(reader)).To(Equal(`data: {"type":"response.created"}`))
+
 		release <- struct{}{}
 		remaining, err := io.ReadAll(reader)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(string(remaining)).To(ContainSubstring(`"total_tokens":10`))
 		Expect(response.Body.Close()).To(Succeed())
+
 		denied := request(ctx, client, http.MethodPost, process.url+"/v1/responses", `{"model":"chat"}`, nil)
 		Expect(denied.StatusCode).To(Equal(http.StatusTooManyRequests))
 	}, SpecTimeout(15*time.Second))

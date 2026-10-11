@@ -41,16 +41,19 @@ func TestLoadTokenLimitPrecedence(t *testing.T) {
 			overrides: map[string]string{"rate_limit.tokens_per_second": "0", "rate_limit.token_burst": "0"},
 		},
 	}
+
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "config.yaml")
 			if test.yaml != "" {
 				writeConfig(t, path, test.yaml)
 			}
+
 			cfg, err := Load(Options{Path: path, LookupEnv: lookup(test.env), Overrides: test.overrides})
 			if err != nil {
 				t.Fatal(err)
 			}
+
 			if cfg.RateLimit.TokensPerSecond != test.wantRate || cfg.RateLimit.TokenBurst != test.wantBurst {
 				t.Errorf("token limit = (%v, %d), want (%v, %d)", cfg.RateLimit.TokensPerSecond, cfg.RateLimit.TokenBurst, test.wantRate, test.wantBurst)
 			}
@@ -83,12 +86,14 @@ func TestValidateTokenLimit(t *testing.T) {
 		{name: "disabled but invalid rate", rate: math.NaN(), burst: 50, disabled: true, wantError: "rate_limit.tokens_per_second"},
 		{name: "disabled but partial quota", rate: 12.5, disabled: true, wantError: "must both be positive or both be zero"},
 	}
+
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			cfg := Defaults()
 			cfg.RateLimit.Enabled = !test.disabled
 			cfg.RateLimit.TokensPerSecond = test.rate
 			cfg.RateLimit.TokenBurst = test.burst
+
 			err := cfg.Validate()
 			if test.wantError == "" {
 				if err != nil {

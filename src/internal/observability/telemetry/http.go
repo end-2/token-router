@@ -30,6 +30,7 @@ func (t *Telemetry) Middleware(next echo.HandlerFunc) echo.HandlerFunc {
 			}
 			return nil
 		}
+
 		start := time.Now()
 		method := observability.BoundedMethod(c.Request().Method)
 		route := c.Path()
@@ -42,6 +43,7 @@ func (t *Telemetry) Middleware(next echo.HandlerFunc) echo.HandlerFunc {
 			attrs[0] = attribute.String("http.request.method", method)
 			attrs[1] = attribute.String("http.route", route)
 		}
+
 		var span trace.Span
 		if t.tracing {
 			ctx = t.propagator.Extract(ctx, propagation.HeaderCarrier(c.Request().Header))
@@ -56,6 +58,7 @@ func (t *Telemetry) Middleware(next echo.HandlerFunc) echo.HandlerFunc {
 			if response, err := echo.UnwrapResponse(c.Response()); err == nil && response.Status > 0 {
 				status = response.Status
 			}
+
 			elapsed := time.Since(start).Seconds()
 			if t.metrics != nil {
 				t.inFlight.Add(ctx, -1)
@@ -63,6 +66,7 @@ func (t *Telemetry) Middleware(next echo.HandlerFunc) echo.HandlerFunc {
 				attrs[2] = attribute.Int("http.response.status_code", status)
 				t.requests.Add(ctx, 1, metric.WithAttributeSet(attribute.NewSet(attrs...)))
 			}
+
 			if span != nil && span.IsRecording() {
 				span.SetAttributes(attribute.Int("http.response.status_code", status))
 				if status >= 500 {
@@ -72,6 +76,7 @@ func (t *Telemetry) Middleware(next echo.HandlerFunc) echo.HandlerFunc {
 					markSpanError(span, ctx.Err())
 				}
 			}
+
 			if logRequest {
 				t.logger.LogAttrs(ctx, slog.LevelInfo, "HTTP request completed",
 					slog.String("method", method), slog.String("route", route), slog.Int("status", status), slog.Float64("duration_seconds", elapsed))
@@ -80,6 +85,7 @@ func (t *Telemetry) Middleware(next echo.HandlerFunc) echo.HandlerFunc {
 				span.End()
 			}
 		}()
+
 		if err := next(c); err != nil {
 			c.Echo().HTTPErrorHandler(c, err)
 		}
@@ -106,6 +112,7 @@ func (t tracedTransport) RoundTrip(request *http.Request) (*http.Response, error
 	method := observability.BoundedMethod(request.Method)
 	ctx, span := t.tracer.Start(request.Context(), method+" upstream", trace.WithSpanKind(trace.SpanKindClient),
 		trace.WithAttributes(attribute.String("http.request.method", method)))
+
 	// Propagation changes only headers; the base transport must not mutate other request fields.
 	request = request.WithContext(ctx)
 	request.Header = request.Header.Clone()
@@ -115,6 +122,7 @@ func (t tracedTransport) RoundTrip(request *http.Request) (*http.Response, error
 	request.Header.Del("traceparent")
 	request.Header.Del("tracestate")
 	t.propagator.Inject(ctx, propagation.HeaderCarrier(request.Header))
+
 	response, err := t.base.RoundTrip(request)
 	if !span.IsRecording() {
 		span.End()
@@ -125,10 +133,12 @@ func (t tracedTransport) RoundTrip(request *http.Request) (*http.Response, error
 		span.End()
 		return response, err
 	}
+
 	span.SetAttributes(attribute.Int("http.response.status_code", response.StatusCode))
 	if response.StatusCode >= 400 {
 		span.SetStatus(codes.Error, "upstream_http_error")
 	}
+
 	if response.Body == nil || response.Body == http.NoBody {
 		span.End()
 	} else {

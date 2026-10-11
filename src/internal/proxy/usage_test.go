@@ -41,6 +41,7 @@ func TestUsageRecorderPreservesProxyExchange(t *testing.T) {
 				if request.URL.Path != "/prefix/v1/responses" || request.Header.Get("Authorization") != "Bearer server-key" {
 					t.Errorf("upstream rewrite changed: path=%s authorization=%q", request.URL.Path, request.Header.Get("Authorization"))
 				}
+
 				writer.Header().Set("Content-Type", test.contentType)
 				writer.Header().Set("X-Request-ID", "upstream-id")
 				writer.WriteHeader(http.StatusCreated)
@@ -49,6 +50,7 @@ func TestUsageRecorderPreservesProxyExchange(t *testing.T) {
 				}
 			}))
 			defer upstream.Close()
+
 			var got []int64
 			cfg := upstreamConfig(upstream.URL + "/prefix")
 			cfg.APIKey = "server-key"
@@ -74,11 +76,14 @@ func TestUsageRecorderPreservesProxyExchange(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer handler.CloseIdleConnections()
+
 			request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(requestBody))
 			request = request.WithContext(context.WithValue(request.Context(), contextKey{}, "request-value"))
 			request.Header.Set("Accept-Encoding", "gzip")
+
 			response := httptest.NewRecorder()
 			handler.ServeHTTP(response, request)
+
 			if response.Code != http.StatusCreated || response.Header().Get("X-Request-ID") != "upstream-id" || response.Body.String() != test.body {
 				t.Fatalf("response changed: status=%d headers=%v body=%q", response.Code, response.Header(), response.Body.String())
 			}
@@ -98,6 +103,7 @@ func TestUsageRecorderIgnoresIneligibleResponses(t *testing.T) {
 	if err := compressor.Close(); err != nil {
 		t.Fatal(err)
 	}
+
 	for _, test := range []struct {
 		name         string
 		method       string
@@ -123,6 +129,7 @@ func TestUsageRecorderIgnoresIneligibleResponses(t *testing.T) {
 				if request.URL.Path != test.basePath+test.path {
 					t.Errorf("upstream path = %q, want %q", request.URL.Path, test.basePath+test.path)
 				}
+
 				writer.Header().Set("Content-Type", "application/json")
 				if test.encoding != "" {
 					writer.Header().Set("Content-Encoding", test.encoding)
@@ -134,10 +141,13 @@ func TestUsageRecorderIgnoresIneligibleResponses(t *testing.T) {
 			}))
 			defer upstream.Close()
 			handler := usageTestHandler(t, upstream.URL+test.basePath, func(context.Context, int64) { t.Error("ineligible response recorded usage") })
+
 			request := httptest.NewRequestWithContext(t.Context(), test.method, test.path, nil)
 			request.Header.Set("Accept-Encoding", "gzip")
+
 			response := httptest.NewRecorder()
 			handler.ServeHTTP(response, request)
+
 			if response.Code != test.status || response.Body.String() != test.body || response.Header().Get("Content-Encoding") != test.encoding {
 				t.Fatal("ineligible response changed")
 			}
@@ -163,17 +173,21 @@ func TestUsageRecorderGenerationEndpoints(t *testing.T) {
 				if request.Header.Get("Accept-Encoding") != "identity" {
 					t.Errorf("generation request Accept-Encoding = %q", request.Header.Get("Accept-Encoding"))
 				}
+
 				writer.Header().Set("Content-Type", "application/json")
 				if _, err := io.WriteString(writer, test.body); err != nil {
 					t.Errorf("write response: %v", err)
 				}
 			}))
 			defer upstream.Close()
+
 			var got int64
 			handler := usageTestHandler(t, upstream.URL, func(_ context.Context, tokens int64) { got += tokens })
+
 			request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, test.path, nil)
 			response := httptest.NewRecorder()
 			handler.ServeHTTP(response, request)
+
 			if response.Code != http.StatusOK || response.Body.String() != test.body {
 				t.Fatal("generation response changed")
 			}
@@ -187,6 +201,7 @@ func TestUsageRecorderGenerationEndpoints(t *testing.T) {
 func TestUsageRecorderStreamsAndRecordsBeforeCancellation(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
+
 	releaseUsage := make(chan struct{})
 	upstreamCanceled := make(chan struct{})
 	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -199,12 +214,14 @@ func TestUsageRecorderStreamsAndRecordsBeforeCancellation(t *testing.T) {
 			t.Errorf("flush content event: %v", err)
 			return
 		}
+
 		select {
 		case <-releaseUsage:
 		case <-request.Context().Done():
 			close(upstreamCanceled)
 			return
 		}
+
 		if _, err := io.WriteString(writer, "data: {\"usage\":{\"total_tokens\":17}}\n\n"); err != nil {
 			t.Errorf("write usage event: %v", err)
 			return
@@ -213,9 +230,11 @@ func TestUsageRecorderStreamsAndRecordsBeforeCancellation(t *testing.T) {
 			t.Errorf("flush usage event: %v", err)
 			return
 		}
+
 		<-request.Context().Done()
 		close(upstreamCanceled)
 	}))
+
 	recorded := make(chan int64, 1)
 	handler := usageTestHandler(t, upstream.URL, func(_ context.Context, tokens int64) { recorded <- tokens })
 	server := httptest.NewServer(handler)
@@ -224,6 +243,7 @@ func TestUsageRecorderStreamsAndRecordsBeforeCancellation(t *testing.T) {
 		server.Close()
 		upstream.Close()
 	}()
+
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, server.URL+"/v1/chat/completions", strings.NewReader(`{"stream":true}`))
 	if err != nil {
 		t.Fatal(err)
@@ -237,11 +257,13 @@ func TestUsageRecorderStreamsAndRecordsBeforeCancellation(t *testing.T) {
 			t.Errorf("close response: %v", err)
 		}
 	}()
+
 	reader := bufio.NewReader(response.Body)
 	first, err := reader.ReadString('\n')
 	if err != nil || first != "data: {\"choices\":[],\"usage\":null}\n" {
 		t.Fatalf("first event did not arrive before usage: event=%q error=%v", first, err)
 	}
+
 	close(releaseUsage)
 	select {
 	case got := <-recorded:
@@ -251,6 +273,7 @@ func TestUsageRecorderStreamsAndRecordsBeforeCancellation(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal("usage was not recorded while stream remained open")
 	}
+
 	cancel()
 	select {
 	case <-upstreamCanceled:

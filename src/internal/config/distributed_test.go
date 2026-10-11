@@ -87,6 +87,7 @@ rate_limit:
     enabled: true
     jwt_claim: account_id
 `)
+
 	cfg, err := Load(Options{Path: path, PathExplicit: true, LookupEnv: lookup(map[string]string{
 		"TOKEN_ROUTER_RATE_LIMIT_MEMORY_DISTRIBUTED_TOKEN": "env-secret",
 		"TOKEN_ROUTER_RATE_LIMIT_MEMORY_DISTRIBUTED_PEERS": `["10.0.0.1:9091","10.0.0.2:9091"]`,
@@ -97,6 +98,7 @@ rate_limit:
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	d := cfg.RateLimit.Memory.Distributed
 	if d.DataDir != filepath.Join(dir, "state") || d.Token != "env-secret" || len(d.Peers) != 2 || d.RequestTimeout != 3*time.Second {
 		t.Fatal("distributed YAML, environment or CLI values did not load")
@@ -104,6 +106,7 @@ rate_limit:
 	if !cfg.RateLimit.Account.Enabled || cfg.RateLimit.Account.JWTClaim != "account_id" {
 		t.Fatalf("policy did not override account settings: %+v", cfg.RateLimit.Account)
 	}
+
 	if _, err := DecodePolicy([]byte("rate_limit: {memory: {distributed: {enabled: true}}}"), cfg.Mutable()); err == nil {
 		t.Fatal("mutable policy accepted static cluster settings")
 	}

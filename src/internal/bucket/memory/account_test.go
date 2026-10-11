@@ -19,6 +19,7 @@ func TestMemoryAccountCleanupPreservesDebt(t *testing.T) {
 	l.now = func() time.Time { return now }
 	idle := bucket.WithAccount(t.Context(), "idle")
 	debtor := bucket.WithAccount(t.Context(), "debtor")
+
 	for _, ctx := range []context.Context{idle, debtor} {
 		if _, err := l.Allow(ctx); err != nil {
 			t.Fatal(err)
@@ -27,10 +28,12 @@ func TestMemoryAccountCleanupPreservesDebt(t *testing.T) {
 	if err := l.RecordUsage(debtor, 1000); err != nil {
 		t.Fatal(err)
 	}
+
 	now = now.Add(2 * time.Minute)
 	if _, err := l.Allow(bucket.WithAccount(t.Context(), "trigger")); err != nil {
 		t.Fatal(err)
 	}
+
 	if l.shard(bucket.AccountKey(idle)).states[bucket.AccountKey(idle)] != nil || l.shard(bucket.AccountKey(debtor)).states[bucket.AccountKey(debtor)] == nil {
 		t.Fatal("cleanup must remove refilled accounts and retain token debt")
 	}
@@ -45,6 +48,7 @@ func TestMemoryConcurrentAccountBurst(t *testing.T) {
 			l := New(1, 3, 0, 0)
 			now := time.Now()
 			l.now = func() time.Time { return now }
+
 			contexts := make([]context.Context, count)
 			allowed := make([]atomic.Int64, count)
 			var wg sync.WaitGroup
@@ -62,6 +66,7 @@ func TestMemoryConcurrentAccountBurst(t *testing.T) {
 				}
 			}
 			wg.Wait()
+
 			for i := range contexts {
 				if got := allowed[i].Load(); got != 3 {
 					t.Errorf("account %d allowed %d requests, want 3", i, got)
@@ -75,6 +80,7 @@ func TestMemoryConcurrentAccountUpdatesAndClose(t *testing.T) {
 	l := New(100, 100, 100, 100)
 	var ticks atomic.Int64
 	l.now = func() time.Time { return time.Unix(1700000000+ticks.Add(1), 0) }
+
 	var wg sync.WaitGroup
 	for i := range 64 {
 		wg.Go(func() {
@@ -99,6 +105,7 @@ func TestMemoryConcurrentAccountUpdatesAndClose(t *testing.T) {
 		}
 	})
 	wg.Wait()
+
 	for i := range 64 {
 		ctx := bucket.WithAccount(t.Context(), strconv.Itoa(i))
 		if _, err := l.Allow(ctx); !errors.Is(err, bucket.ErrClosed) {

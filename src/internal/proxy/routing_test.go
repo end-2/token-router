@@ -36,6 +36,7 @@ func TestRoutingSelectorsAndPriority(t *testing.T) {
 	both := routingUpstream(t, "both")
 	port := routingUpstream(t, "port")
 	ipv6 := routingUpstream(t, "ipv6")
+
 	cfg := upstreamConfig(fallback)
 	cfg.Routes = []config.UpstreamRoute{
 		{Host: "*", Model: "*", BaseURLs: []string{fallback}},
@@ -47,6 +48,7 @@ func TestRoutingSelectorsAndPriority(t *testing.T) {
 		{Host: "tie.example.com", BaseURLs: []string{host}},
 	}
 	handler := newTestHandler(t, cfg)
+
 	for _, test := range []struct{ name, host, body, want string }{
 		{"host only", "api.example.com", `{}`, "host"},
 		{"model only", "other.example.com", `{"model":"chat"}`, "model"},
@@ -70,8 +72,10 @@ func TestRoutingSelectorsAndPriority(t *testing.T) {
 			request.Host = test.host
 			request.Header.Set("Content-Type", "application/json; charset=utf-8")
 			request.Header.Set("X-Forwarded-Host", "api.example.com")
+
 			response := httptest.NewRecorder()
 			handler.ServeHTTP(response, request)
+
 			if response.Code != http.StatusOK || response.Header().Get("X-Upstream") != test.want || response.Body.String() != test.body {
 				t.Fatalf("status=%d upstream=%q body=%q; want upstream=%q and unchanged body", response.Code, response.Header().Get("X-Upstream"), response.Body.String(), test.want)
 			}
@@ -83,12 +87,14 @@ func TestRoutingRoundRobinAndDuplicateConditions(t *testing.T) {
 	first := routingUpstream(t, "first")
 	second := routingUpstream(t, "second")
 	third := routingUpstream(t, "third")
+
 	cfg := upstreamConfig("")
 	cfg.Routes = []config.UpstreamRoute{
 		{Host: "api.example.com", Model: "chat", BaseURLs: []string{strings.TrimPrefix(first, "http://"), second}},
 		{Host: "API.EXAMPLE.COM.", Model: "chat", BaseURLs: []string{third}},
 	}
 	handler := newTestHandler(t, cfg)
+
 	forward := func() string {
 		request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "http://api.example.com/v1/responses", strings.NewReader(`{"model":"chat"}`))
 		response := httptest.NewRecorder()
@@ -98,11 +104,13 @@ func TestRoutingRoundRobinAndDuplicateConditions(t *testing.T) {
 		}
 		return response.Header().Get("X-Upstream")
 	}
+
 	for i, want := range []string{"first", "second", "third", "first", "second", "third"} {
 		if got := forward(); got != want {
 			t.Fatalf("request %d selected %q, want %q", i, got, want)
 		}
 	}
+
 	var wg sync.WaitGroup
 	results := make(chan string, 90)
 	for range cap(results) {
@@ -110,10 +118,12 @@ func TestRoutingRoundRobinAndDuplicateConditions(t *testing.T) {
 	}
 	wg.Wait()
 	close(results)
+
 	counts := make(map[string]int)
 	for result := range results {
 		counts[result]++
 	}
+
 	for _, name := range []string{"first", "second", "third"} {
 		if counts[name] != 30 {
 			t.Errorf("concurrent requests to %s = %d, want 30", name, counts[name])
@@ -124,6 +134,7 @@ func TestRoutingRoundRobinAndDuplicateConditions(t *testing.T) {
 func TestWildcardRoutesAndMergedDefaults(t *testing.T) {
 	first := routingUpstream(t, "first")
 	second := routingUpstream(t, "second")
+
 	for _, test := range []struct {
 		name   string
 		routes []config.UpstreamRoute
@@ -141,6 +152,7 @@ func TestWildcardRoutesAndMergedDefaults(t *testing.T) {
 			cfg := upstreamConfig("http://127.0.0.1:1")
 			cfg.Routes = test.routes
 			handler := newTestHandler(t, cfg)
+
 			for _, want := range test.want {
 				response := httptest.NewRecorder()
 				handler.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/models", nil))
@@ -185,6 +197,7 @@ func TestRoutingBodyValidation(t *testing.T) {
 			}
 			cfg.Routes = []config.UpstreamRoute{{Host: "api.example.com", Model: model, BaseURLs: []string{target}}}
 			handler := newTestHandler(t, cfg)
+
 			request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "http://api.example.com/v1/responses", strings.NewReader(test.body))
 			if test.unknownLength {
 				request.ContentLength = -1
@@ -194,8 +207,10 @@ func TestRoutingBodyValidation(t *testing.T) {
 			}
 			request.Header.Set("Content-Type", test.contentType)
 			request.Header.Set("Content-Encoding", test.encoding)
+
 			response := httptest.NewRecorder()
 			handler.ServeHTTP(response, request)
+
 			if response.Code != test.status {
 				t.Fatalf("status=%d body=%s; want %d", response.Code, response.Body.String(), test.status)
 			}
@@ -228,12 +243,15 @@ func TestWildcardModelDoesNotInspectBody(t *testing.T) {
 			cfg.Routes = test.routes
 			cfg.MaxRoutingBodyBytes = 1
 			handler := newTestHandler(t, cfg)
+
 			const body = "opaque compressed body"
 			request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "http://api.example.com/v1/responses", strings.NewReader(body))
 			request.Header.Set("Content-Type", "application/json")
 			request.Header.Set("Content-Encoding", "gzip")
+
 			response := httptest.NewRecorder()
 			handler.ServeHTTP(response, request)
+
 			if response.Code != http.StatusOK || response.Body.String() != body {
 				t.Fatalf("wildcard route inspected or changed the body: status=%d body=%q", response.Code, response.Body.String())
 			}
@@ -254,6 +272,7 @@ func TestModelRoutingPreservesExchange(t *testing.T) {
 		if request.Header.Get("Authorization") != "Bearer server-key" || request.Header.Get("X-Forwarded-Host") != "" || request.Trailer.Get("X-Checksum") != "checksum" {
 			t.Errorf("headers or trailer changed: headers=%v trailer=%v", request.Header, request.Trailer)
 		}
+
 		writer.Header().Set("Retry-After", "12")
 		writer.WriteHeader(http.StatusTooManyRequests)
 		if _, err := io.WriteString(writer, `{"error":"limited"}`); err != nil {
@@ -261,11 +280,13 @@ func TestModelRoutingPreservesExchange(t *testing.T) {
 		}
 	}))
 	defer upstream.Close()
+
 	cfg := upstreamConfig("")
 	cfg.APIKey = "server-key"
 	cfg.Routes = []config.UpstreamRoute{{Host: "api.example.com", Model: "chat", BaseURLs: []string{upstream.URL + "/gateway"}}}
 	server := httptest.NewServer(newTestHandler(t, cfg))
 	defer server.Close()
+
 	request, err := http.NewRequestWithContext(t.Context(), http.MethodPost, server.URL+"/v1/a%2Fb?key=a%2Fb", strings.NewReader(payload))
 	if err != nil {
 		t.Fatal(err)
@@ -274,6 +295,7 @@ func TestModelRoutingPreservesExchange(t *testing.T) {
 	request.ContentLength = -1
 	request.Trailer = http.Header{"X-Checksum": {"checksum"}}
 	request.Header.Set("X-Forwarded-Host", "spoof.example.com")
+
 	response, err := server.Client().Do(request)
 	if err != nil {
 		t.Fatal(err)
@@ -283,6 +305,7 @@ func TestModelRoutingPreservesExchange(t *testing.T) {
 			t.Error(err)
 		}
 	}()
+
 	body, err := io.ReadAll(response.Body)
 	if err != nil || response.StatusCode != http.StatusTooManyRequests || response.Header.Get("Retry-After") != "12" || string(body) != `{"error":"limited"}` {
 		t.Fatalf("response changed: status=%d body=%s err=%v", response.StatusCode, body, err)
@@ -293,11 +316,13 @@ func TestModelRoutingRequestTimeoutInterruptsBodyRead(t *testing.T) {
 	var calls atomic.Int64
 	upstream := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { calls.Add(1) }))
 	defer upstream.Close()
+
 	cfg := upstreamConfig("")
 	cfg.RequestTimeout = 50 * time.Millisecond
 	cfg.Routes = []config.UpstreamRoute{{Model: "chat", BaseURLs: []string{upstream.URL}}}
 	server := httptest.NewServer(newTestHandler(t, cfg))
 	defer server.Close()
+
 	conn, err := (&net.Dialer{}).DialContext(t.Context(), "tcp", server.Listener.Addr().String())
 	if err != nil {
 		t.Fatal(err)
@@ -322,6 +347,7 @@ func TestModelRoutingRequestTimeoutInterruptsBodyRead(t *testing.T) {
 			t.Error(err)
 		}
 	}()
+
 	if response.StatusCode != http.StatusGatewayTimeout || calls.Load() != 0 {
 		t.Fatalf("status=%d upstream calls=%d", response.StatusCode, calls.Load())
 	}
@@ -331,10 +357,13 @@ func TestRoutingBodyReadFailure(t *testing.T) {
 	cfg := upstreamConfig("")
 	cfg.Routes = []config.UpstreamRoute{{Model: "chat", BaseURLs: []string{"127.0.0.1:1"}}}
 	handler := newTestHandler(t, cfg)
+
 	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil)
 	request.Body = io.NopCloser(failingRoutingBody{})
+
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
+
 	if response.Code != http.StatusBadRequest || strings.Contains(response.Body.String(), "secret-value") {
 		t.Fatalf("unexpected body read error: status=%d body=%s", response.Code, response.Body.String())
 	}
@@ -362,10 +391,13 @@ func TestRoutingPreservesRequestContext(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer handler.CloseIdleConnections()
+
 	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"chat"}`))
 	request = request.WithContext(context.WithValue(request.Context(), contextKey{}, "retained"))
+
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
+
 	if response.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}

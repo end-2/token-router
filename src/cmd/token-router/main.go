@@ -19,6 +19,7 @@ func main() {
 func execute() int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
 	command := cli.NewCommand(app.Run)
 	if err := command.ExecuteContext(ctx); err != nil {
 		slog.New(slog.NewJSONHandler(os.Stderr, nil)).Error("command failed", "error", err.Error())

@@ -1,10 +1,10 @@
-# Policy 설정과 admin API
+# Policy configuration and admin API
 
-`upstream` 전체와 rate limit의 수치와 계정 설정은 `policy.yaml`에서 관리하고 실행 중 교체할 수 있다. 파일 감시와 전용 admin API는 같은 검증과 적용 경로를 사용한다. 저장소의 `config.yaml`은 `policy.file: policy.yaml`로 파일 감시를 활성화하며 admin 리스너는 기본적으로 비활성화한다.
+All `upstream` settings and rate limit values and account settings are managed in `policy.yaml` and can be replaced at runtime. File watching and the dedicated admin API share the same validation and application path. The repository's `config.yaml` enables file watching through `policy.file: policy.yaml` and disables the admin listener by default.
 
-## 설정 분리
+## Configuration separation
 
-메인 `config.yaml`에는 리스너, 파일 경로, 전략과 관측 설정을 둔다.
+The main `config.yaml` contains listeners, file paths, backend selection, and observability settings.
 
 ```yaml
 server:
@@ -20,7 +20,7 @@ rate_limit:
   backend: memory
 ```
 
-`policy.yaml`에는 다음 필드를 사용할 수 있다. 전체 기본 설정은 저장소 루트의 [`policy.yaml`](../../policy.yaml)에 있다.
+The following fields are allowed in `policy.yaml`. See the root [`policy.yaml`](../../policy.yaml) for the full default configuration.
 
 ```yaml
 upstream:
@@ -38,11 +38,11 @@ rate_limit:
     jwt_claim: sub
 ```
 
-`upstream`은 목적지, Host와 model 라우팅, API key, 조직과 프로젝트 헤더, timeout과 연결 풀 설정을 모두 지원한다. `rate_limit`은 `requests_per_second`, `burst`, `tokens_per_second`, `token_burst`, `account.enabled`, `account.jwt_claim`을 지원한다. 계정 식별 규칙은 [계정별 제한](../reference/configuration.md#계정별-제한)에 있다. `rate_limit.enabled`, `rate_limit.backend`, `rate_limit.memory`, `rate_limit.redis`와 다른 최상위 설정은 메인 설정에 고정한다. 이 필드를 policy 파일이나 admin 요청에 넣으면 거부한다.
+`upstream` supports destinations, Host and model routing, API keys, organization and project headers, timeouts, and connection pool settings. `rate_limit` supports `requests_per_second`, `burst`, `tokens_per_second`, `token_burst`, `account.enabled`, and `account.jwt_claim`. See [Per-account limits](../reference/configuration.md#per-account-limits) for identifier rules. `rate_limit.enabled`, `rate_limit.backend`, `rate_limit.memory`, `rate_limit.redis`, and other top-level settings are fixed in the main configuration. These fields are rejected in policy files and admin requests.
 
-`policy.file`의 상대 경로는 메인 설정 파일의 디렉토리를 기준으로 해석한다. 파일 경로와 감시 간격 자체는 시작할 때 고정한다. `policy.watch_interval`은 양수여야 하며 기본값은 `1s`다. 다음 CLI와 환경 변수도 사용할 수 있다.
+Relative `policy.file` paths are resolved from the main configuration file's directory. The path and watch interval are fixed at startup. `policy.watch_interval` must be positive and defaults to `1s`. These CLI arguments and environment variables are also available:
 
-| YAML 키 | 환경 변수 | CLI |
+| YAML key | Environment variable | CLI |
 | --- | --- | --- |
 | `policy.file` | `TOKEN_ROUTER_POLICY_FILE` | `--policy-file` |
 | `policy.watch_interval` | `TOKEN_ROUTER_POLICY_WATCH_INTERVAL` | `--policy-watch-interval` |
@@ -53,33 +53,33 @@ rate_limit:
 go run ./src/cmd/token-router serve --config config.yaml --admin-enabled
 ```
 
-메인 설정에는 기본값, 메인 YAML, 환경 변수, 명시적인 CLI 인자 순서로 값을 적용한다. policy 파일은 그 결과 위에 마지막으로 적용하므로 파일에 명시한 값은 환경 변수와 CLI보다 우선한다. 파일에서 생략한 값은 policy 파일을 적용하기 전 시작 설정을 사용한다. 이후 파일을 교체해도 같은 시작 설정을 기준으로 다시 병합하므로 필드를 삭제하면 시작 설정으로 돌아간다. 배열은 전체를 교체하며 `null`은 허용하지 않는다.
+Main configuration applies defaults, main YAML, environment variables, and explicit CLI arguments in that order. The policy file is applied last, so explicitly specified file values override environment variables and CLI arguments. Omitted values use the startup configuration before policy application. File replacements are merged against that same startup configuration, so removing a field restores its startup value. Arrays are replaced in full, and `null` is not allowed.
 
-`policy.file`을 생략한 사용자 설정이나 `--policy-file=`을 사용하면 파일 감시 없이 시작 설정을 사용한다. 저장소의 `policy.yaml`은 `upstream.api_key: ""`를 포함하므로 기본적으로 클라이언트의 `Authorization`을 전달한다. 환경 변수 `TOKEN_ROUTER_UPSTREAM_API_KEY`를 적용하려면 policy 파일에서 `api_key` 필드를 생략한다.
+A custom configuration omitting `policy.file`, or `--policy-file=`, uses startup configuration without file watching. The repository's `policy.yaml` includes `upstream.api_key: ""`, so it forwards the client's `Authorization` by default. To use `TOKEN_ROUTER_UPSTREAM_API_KEY`, omit the `api_key` field from the policy file.
 
-## 파일 감시와 적용
+## File watching and application
 
-파일 내용은 지정한 간격마다 읽어 SHA-256으로 비교한다. 같은 내용을 다시 읽으면 설정을 재생성하지 않는다. rename으로 파일을 교체하거나 symlink의 대상이 바뀌어도 다음 검사에서 내용을 읽는다. 메인 설정 파일과 환경 변수는 다시 읽지 않는다.
+File contents are read at the configured interval and compared using SHA-256. Identical contents do not recreate configuration. File replacement by rename or a changed symlink target is read on the next check. The main configuration file and environment variables are not reread.
 
-지정한 policy 파일이 시작 시 없거나 유효하지 않으면 시작에 실패한다. 시작 후 파일이 삭제되거나 읽기, 구문 또는 값 검증에 실패하면 마지막 정상 설정으로 계속 처리하고 경고 로그를 남긴다. 파일이 복구되면 감시가 계속 적용한다. 파일과 admin 요청 본문 크기는 각각 1 MiB 이하로 제한한다. 빈 파일은 오류이며 기본값만 적용하려면 `{}`를 사용한다.
+A missing or invalid policy file at startup prevents startup. After startup, deletion or read, syntax, or value validation failures retain the last valid configuration and emit a warning. Watching resumes applying changes when the file recovers. Policy files and admin request bodies are each limited to 1 MiB. Empty files are errors; use `{}` to apply only defaults.
 
-교체할 내용을 다른 파일에 완성한 뒤 같은 파일시스템에서 rename하면 작성 중인 중간 내용이 노출되는 것을 피할 수 있다. 설정은 전체 검증 후 적용하며, upstream과 제한값 중 일부가 잘못되면 둘 다 바뀌지 않는다. upstream 변경은 새 요청부터 적용한다. 진행 중인 응답과 SSE는 기존 upstream에서 계속 처리하고, 완료된 이전 연결 풀은 정리한다. rate limit 수치나 계정 식별 설정만 변경하면 upstream 연결 풀과 라운드 로빈 순번을 유지한다. 토큰 사용량 관찰의 활성 상태가 바뀌면 새 프록시를 생성한다.
+Complete replacement content in another file, then rename it on the same filesystem to avoid exposing partially written content. Configuration applies only after full validation; an invalid upstream setting or limit prevents both from changing. Upstream changes apply to new requests. Active responses and SSE streams continue on the existing upstream, and old connection pools are cleaned up after completion. Changes only to rate limit values or account identifier settings preserve upstream pools and round-robin counters. Changing whether token usage is observed creates a new proxy.
 
-버킷 구현과 Redis client는 교체하지 않는다. 활성화된 버킷의 수치를 바꿀 때 잔액을 가득 채우지 않으며, 용량 축소는 양수 잔액에 상한을 적용하고 음수 토큰 잔액은 유지한다. 로컬 memory는 변경 시점까지 기존 보충량으로 잔액을 계산한다. Redis는 다음 Lua 호출부터 새 값으로 잔액, 이전 호출 이후의 보충량과 TTL을 계산하며, 설정 변경 자체는 Redis key를 수정하지 않는다. Redis 또는 분산 memory를 공유하는 프로세스에는 같은 제한값과 계정 설정을 배포해야 하며 admin API는 수신한 프로세스의 설정과 파일만 수정한다. 분산 memory는 다음 명령 적용 시 해당 계정의 기존 보충량으로 잔액을 계산한 뒤 새 값을 적용한다. 자세한 내용은 [분산 memory rate limit](distributed-rate-limiting.md)에 있다.
+Bucket implementations and Redis clients are not replaced. Changing active bucket values does not refill balances; reduced capacities cap positive balances while preserving negative token balances. Local memory computes balances up to the update time using the previous refill rate. Redis uses new values from the next Lua call to calculate balances, refill since the previous call, and TTL; configuration updates alone do not modify Redis keys. Processes sharing Redis or distributed memory must receive the same limits and account settings; the admin API changes only the receiving process's configuration and file. Distributed memory computes each account balance with its previous refill rate before applying new values on the next command. See [Distributed memory rate limiting](distributed-rate-limiting.md).
 
-`tokens_per_second`와 `token_burst`를 모두 `0`으로 설정하면 토큰 사용량 제한을 끈다. 다시 켤 때는 두 값을 모두 양수로 지정한다. 사용량 관찰 여부는 요청이 선택한 프록시에 따르고, 관찰한 사용량은 기록 시점의 버킷 설정으로 처리한다. 토큰 제한이 꺼져 있을 때 시작한 스트림의 사용량을 나중에 소급해서 수집하지 않는다.
+Set both `tokens_per_second` and `token_burst` to `0` to disable token usage limiting, and set both positive to enable it again. Whether usage is observed depends on the proxy selected by the request; observed usage is processed using bucket settings at recording time. Usage from streams started while token limiting was disabled is not collected retroactively.
 
 ## Admin API
 
-`admin.enabled=true`이면 별도 HTTP 리스너를 연다. 기본 주소는 `127.0.0.1:9091`이며 API와 Prometheus 주소와 달라야 한다. admin 리스너가 bind에 실패하면 다른 리스너도 닫고 시작에 실패한다. 종료 시 다른 HTTP 리스너와 같은 graceful shutdown 절차를 사용한다.
+`admin.enabled=true` opens a separate HTTP listener. Its default address is `127.0.0.1:9091` and must differ from the API and Prometheus addresses. An admin bind failure closes other listeners and fails startup. Shutdown follows the same graceful procedure as the other HTTP listeners.
 
-| 메서드와 경로 | 동작 |
+| Method and path | Behavior |
 | --- | --- |
-| `GET /config` | 현재 유효한 policy 설정 전체 조회 |
-| `PATCH /config` | 현재 값 위에 요청 필드만 병합하고 검증 후 적용 |
-| `PUT /config` | 요청을 새 policy 문서로 적용. 생략한 값은 시작 설정 사용 |
+| `GET /config` | Retrieve the complete currently effective policy configuration |
+| `PATCH /config` | Merge only request fields into current values, then validate and apply |
+| `PUT /config` | Apply the request as a new policy document; omitted values use startup configuration |
 
-입력은 JSON 또는 YAML 매핑이다. 응답은 JSON이며 키 이름은 YAML과 같고 duration은 `10s` 같은 문자열이다. `GET` 응답을 그대로 `PUT`할 수 있다. `PATCH`에서도 배열 전체를 교체한다. 요청은 순서대로 적용하며 별도 버전 충돌 검사는 없다.
+Input is a JSON or YAML mapping. Responses are JSON with the same key names as YAML and durations as strings such as `10s`. A `GET` response can be submitted unchanged with `PUT`. `PATCH` also replaces entire arrays. Requests apply sequentially, with no separate version conflict detection.
 
 ```sh
 curl --fail http://127.0.0.1:9091/config
@@ -96,12 +96,12 @@ curl --fail -X PUT http://127.0.0.1:9091/config \
   -H 'Content-Type: application/yaml' --data-binary @policy.yaml
 ```
 
-성공하면 `200`과 적용된 설정을 반환한다. 잘못된 설정과 고정 필드 변경은 `400`, 본문 크기 초과는 `413`, 파일 저장 실패는 `500`, 종료 중 변경 요청은 `503`을 반환한다. 오류 본문에는 설정 입력값을 포함하지 않는다. `/config`는 public API나 Prometheus 리스너에 등록하지 않으며 admin 요청은 프록시 rate limit을 소비하지 않는다.
+Success returns `200` and the applied configuration. Invalid configuration and fixed-field changes return `400`, oversized bodies return `413`, file persistence failures return `500`, and updates during shutdown return `503`. Error bodies do not include configuration input values. `/config` is not registered on the public API or Prometheus listener, and admin requests do not consume proxy rate limits.
 
-`policy.file`이 있으면 API는 유효 설정 전체를 YAML로 직렬화하고 같은 디렉토리의 임시 파일을 rename한 뒤 메모리에 적용한다. 저장 실패 시 메모리 설정도 유지한다. 저장된 파일은 재시작 후에도 사용하고 기존 YAML 주석과 표현 형식은 유지하지 않는다. 시작 설정에서 상속한 API key를 포함한 유효값도 파일에 저장한다. 생성한 파일 권한은 `0600`이다.
+When `policy.file` is configured, the API serializes the complete effective configuration to YAML, renames a temporary file in the same directory, then applies the configuration in memory. Persistence failure also preserves the in-memory configuration. The saved file is used after restart; existing YAML comments and formatting are not preserved. Effective values, including API keys inherited from startup configuration, are also saved. Created files have permissions `0600`.
 
-API 저장에는 일반 파일과 디렉토리 쓰기 권한이 필요하다. symlink 파일은 감시만 지원하며 API 저장은 거부한다. 읽기 전용 마운트나 단일 파일 bind mount처럼 rename이 불가능한 위치에서도 저장은 실패한다. 컨테이너에서 API 저장을 사용하려면 쓰기 가능한 디렉토리를 마운트하고 실행 UID에 디렉토리 쓰기 권한을 부여한다. `policy.file`이 비어 있으면 API 변경은 해당 프로세스 메모리에만 남는다.
+API persistence requires a regular file and directory write permission. Symlink files support watching only; API persistence rejects them. Read-only mounts and locations that do not allow rename, such as single-file bind mounts, also fail persistence. For container API persistence, mount a writable directory and grant its write permission to the runtime UID. If `policy.file` is empty, API changes remain only in the process's memory.
 
-`/config` API는 인증 기능을 제공하지 않고 응답에 `upstream.api_key`를 포함한다. 기본 loopback 주소를 사용하거나 접근을 제한한 관리 네트워크에서 사용한다. 컨테이너 외부로 연결하려면 `--admin-address=:9091`을 명시하고 필요한 호스트 포트만 공개한다.
+The `/config` API provides no authentication and includes `upstream.api_key` in responses. Use the default loopback address or an access-restricted management network. For connections from outside a container, explicitly set `--admin-address=:9091` and expose only the required host port.
 
-분산 memory를 활성화하면 같은 admin 포트에 `/internal/rate-limit/` 경로를 등록한다. 내부 경로는 공유 token으로 인증하지만 `/config`의 접근 권한에는 영향을 주지 않는다. peer 간 통신을 위해 admin 리스너를 공개할 때도 관리 네트워크의 접근 제한을 유지한다.
+Enabling distributed memory registers `/internal/rate-limit/` routes on the same admin port. Internal routes authenticate with a shared token, which does not affect access to `/config`. Retain management network access restrictions when exposing the admin listener for peer communication.

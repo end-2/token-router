@@ -1,10 +1,10 @@
-# 분산 memory rate limit
+# Distributed memory rate limiting
 
-`rate_limit.backend: memory`에서 `rate_limit.memory.distributed.enabled: true`를 설정하면 Redis 없이 여러 token-router가 요청 수와 토큰 사용량 잔액을 공유한다. 각 프로세스는 Raft voter로 참여하고, 선출된 leader가 허용 판단과 사용량 기록을 직렬화한다. 과반수에 기록된 명령을 적용한 뒤 결과를 반환한다. 계정 제한을 켜면 같은 계정의 잔액을 공유하고, 끄면 클러스터 전체가 하나의 버킷을 공유한다.
+With `rate_limit.backend: memory` and `rate_limit.memory.distributed.enabled: true`, multiple token-router processes share request count and token usage balances without Redis. Each process participates as a Raft voter, and the elected leader serializes admission decisions and usage recording. Results return after applying commands recorded on a majority. With account limiting enabled, balances are shared for the same account; otherwise, the entire cluster shares one bucket.
 
-## 설정과 서비스 디스커버리
+## Configuration and service discovery
 
-다음은 첫 번째 노드의 `config.yaml` 설정이다. `peers`는 자신을 포함한 전체 노드의 `IP:admin-port` 목록이다. 모든 노드가 같은 목록과 공유 token을 사용하고, `address`와 데이터 디렉토리는 각 노드에 맞게 설정한다.
+The following `config.yaml` configures the first node. `peers` lists every node's `IP:admin-port`, including the node itself. All nodes use the same list and shared token, while `address` and the data directory are specific to each node.
 
 ```yaml
 server:
@@ -29,22 +29,22 @@ rate_limit:
       request_timeout: 5s
 ```
 
-공유 token은 `TOKEN_ROUTER_RATE_LIMIT_MEMORY_DISTRIBUTED_TOKEN` 환경 변수로 주입한다. 위 예제에는 실제 token을 저장하지 않는다. 두 번째와 세 번째 노드는 `address`를 각각 자신의 IP로 바꾼다. 동일 호스트에서도 서로 다른 admin 포트와 데이터 디렉토리로 여러 노드를 실행할 수 있다. API와 Prometheus 리스너 포트도 충돌하지 않게 설정한다.
+Inject the shared token through `TOKEN_ROUTER_RATE_LIMIT_MEMORY_DISTRIBUTED_TOKEN`; the example stores no actual token. Set the second and third nodes' `address` to their own IPs. Multiple nodes can run on the same host with separate admin ports and data directories. API and Prometheus listener ports must also avoid conflicts.
 
-| 설정 | 의미와 기본값 |
+| Setting | Meaning and default |
 | --- | --- |
-| `rate_limit.memory.distributed.enabled` | 기본값 `false`, `memory` 선택 시 분산 모드 활성화 |
-| `rate_limit.memory.distributed.address` | 다른 노드가 접속할 자신의 `IP:admin-port`, 활성화 시 필수 |
-| `rate_limit.memory.distributed.peers` | 자신을 포함한 전체 voter 주소 배열, 모든 노드에 동일하게 지정 |
-| `rate_limit.memory.distributed.data_dir` | Raft 로그, 투표 상태와 snapshot 저장 경로, 기본값 `data/rate-limit` |
-| `rate_limit.memory.distributed.token` | 내부 요청 인증용 공통 비밀 값, 활성화 시 필수 |
-| `rate_limit.memory.distributed.request_timeout` | 개별 허용 판단과 사용량 기록의 대기 상한, 기본값 `5s`, 양수 |
+| `rate_limit.memory.distributed.enabled` | Defaults to `false`; enables distributed mode when `memory` is selected |
+| `rate_limit.memory.distributed.address` | This node's `IP:admin-port` reachable by other nodes; required when enabled |
+| `rate_limit.memory.distributed.peers` | All voter addresses, including this node; use the same membership on every node |
+| `rate_limit.memory.distributed.data_dir` | Storage for Raft logs, voting state, and snapshots; defaults to `data/rate-limit` |
+| `rate_limit.memory.distributed.token` | Shared secret for internal request authentication; required when enabled |
+| `rate_limit.memory.distributed.request_timeout` | Maximum wait for each admission decision or usage record; positive, defaults to `5s` |
 
-`address`와 `peers`에는 정규화된 IP 주소와 1부터 65535 사이의 포트만 허용한다. IPv6는 `[2001:db8::11]:9091` 형식이다. 호스트명, URL, 중복 peer, wildcard 주소는 허용하지 않는다. `admin.address`는 실제 bind 주소이므로 `0.0.0.0:9091`이나 `[::]:9091`을 사용할 수 있으며, 광고하는 `address`와 포트가 같아야 한다.
+`address` and `peers` allow only canonical IP addresses with ports from 1 to 65535. IPv6 uses the form `[2001:db8::11]:9091`. Hostnames, URLs, duplicate peers, and wildcard addresses are rejected. `admin.address` is the actual bind address, so it may use `0.0.0.0:9091` or `[::]:9091`, but its port must match the advertised `address`.
 
-서비스 디스커버리는 정적 peer 목록으로 수행한다. seed 목록을 통한 자동 가입, DNS 조회와 실행 중 membership 변경은 지원하지 않는다. `peers` 순서는 달라도 되지만 구성원은 같아야 한다. 주소와 membership을 저장된 데이터 디렉토리의 식별 정보와 비교하므로, 기존 데이터로 다른 주소나 voter 목록을 사용하면 시작을 거부한다.
+Service discovery uses a static peer list. Automatic joining through seed lists, DNS lookup, and runtime membership changes are unsupported. `peers` may differ in order but must contain the same members. Addresses and membership are checked against identity metadata in the stored data directory, so startup rejects existing data used with a different address or voter list.
 
-각 설정은 같은 경로의 CLI와 환경 변수로도 전달할 수 있다.
+Each setting is also available through CLI arguments and environment variables derived from its path.
 
 ```sh
 go run ./src/cmd/token-router serve --config config.yaml \
@@ -53,9 +53,9 @@ go run ./src/cmd/token-router serve --config config.yaml \
   --rate-limit-memory-distributed-peers='["10.0.0.11:9091","10.0.0.12:9091","10.0.0.13:9091"]'
 ```
 
-## 정책과 계정
+## Policies and accounts
 
-제한값과 계정 추출 설정은 `policy.yaml`에 둔다. 다음 설정은 모든 계정에 요청 burst 20과 토큰 burst 60,000을 각각 적용한다.
+Place limit values and account extraction settings in `policy.yaml`. The following configuration gives every account a request burst of 20 and a token burst of 60,000.
 
 ```yaml
 rate_limit:
@@ -68,41 +68,41 @@ rate_limit:
     jwt_claim: sub
 ```
 
-계정 추출과 인증의 구분은 [계정별 제한](../reference/configuration.md#계정별-제한)에 있다. `account.enabled: false`이면 이 수치를 클러스터 전체에 적용한다.
+See [Per-account limits](../reference/configuration.md#per-account-limits) for the distinction between account extraction and authentication. With `account.enabled: false`, these values apply to the entire cluster.
 
-모든 노드에 같은 policy를 배포한다. policy 파일과 admin `/config` 변경은 해당 노드에만 적용되며 Raft로 정책 파일을 전파하지 않는다. follower가 전달한 제한값이나 신규 요청의 계정 추출 설정이 leader와 다르면 `503`을 반환한다. 변경을 순차 배포하는 동안 일시적으로 이 오류가 발생할 수 있다. 사용량 기록은 요청 허용 시 결정한 계정을 유지한다.
+Deploy the same policy to all nodes. Policy files and admin `/config` changes apply only to the receiving node; Raft does not distribute policy files. If follower-supplied limit values or account extraction settings for new requests differ from the leader's, requests return `503`. This can occur temporarily during rolling policy deployment. Usage recording retains the account determined at admission.
 
-분산 버킷은 새 값이 포함된 명령이 적용될 때 기존 보충량으로 해당 계정의 잔액을 계산한 후 새 용량을 적용한다. 용량을 늘려도 기존 잔액을 가득 채우지 않으며, 토큰 부채를 유지한다. 토큰 제한 비활성화와 재활성화는 [Policy 설정](policy-configuration.md#파일-감시와-적용)의 사용량 관찰 규칙을 따른다.
+When applying a command with new values, distributed buckets compute the account balance using the previous refill rate, then apply the new capacity. Increasing capacity does not refill existing balances, and token debt is preserved. Disabling and reenabling token limits follows the usage observation rules in [Policy configuration](policy-configuration.md#file-watching-and-application).
 
-## 복구와 가용성
+## Recovery and availability
 
-운영에서는 3개 이상의 홀수 voter 구성을 사용한다. 3개 중 2개, 5개 중 3개처럼 과반수가 통신해야 제한 판단을 완료할 수 있다. 단일 노드도 허용하지만 장애 허용 능력은 없다. 2개 노드는 하나만 중단되어도 과반수를 잃는다.
+For production, use an odd number of voters, at least three. A majority must communicate to complete admission decisions, such as two of three or three of five. A single node is allowed but has no fault tolerance. A two-node cluster loses its majority when either node stops.
 
-leader 장애 시 남은 과반수가 leader를 다시 선출하고 복제된 잔액을 이어받는다. 선출 중이거나 과반수에 기록할 수 없으면 요청 허용 판단은 `503`으로 실패한다. `memory`의 프로세스별 버킷으로 자동 전환하지 않는다. `/readyz`는 HTTP 서버의 시작과 종료 상태만 표시하므로 클러스터의 과반수 가용성을 보장하지 않는다.
+When the leader fails, the remaining majority elects another leader and retains replicated balances. During elections or when commands cannot be recorded on a majority, admission fails with `503`. There is no automatic fallback to per-process `memory` buckets. `/readyz` reports only HTTP server startup and shutdown state and does not guarantee cluster majority availability.
 
-`data_dir`의 상대 경로는 메인 설정 파일의 디렉토리를 기준으로 한다. 노드마다 별도 디렉토리를 사용하고 재시작 시 동일한 주소와 디렉토리를 유지한다. 컨테이너에서는 실행 UID가 쓸 수 있는 영속 볼륨을 사용한다. 프로세스 재시작 시 snapshot과 로그로 잔액을 복구한다. 로그와 snapshot은 계정 식별자의 SHA-256 해시를 사용하며 인증 헤더나 토큰 원문을 저장하지 않는다. 모든 노드의 데이터를 삭제하면 기존 사용량을 복구할 수 없다.
+Relative `data_dir` paths are resolved from the main configuration file's directory. Use a separate directory for each node and retain the same address and directory across restarts. Containers need persistent volumes writable by their runtime UID. Restarts recover balances from snapshots and logs. Logs and snapshots use SHA-256 account identifier hashes and do not store raw authentication headers or tokens. Deleting every node's data makes existing usage unrecoverable.
 
-leader가 명령에 기록한 시간을 모든 노드가 사용한다. leader 교체 후 시계가 뒤로 이동하면 해당 버킷의 마지막 기록 시각보다 앞선 시간으로 보충하지 않는다. 시계가 앞으로 크게 이동하면 그만큼 보충될 수 있으므로 노드의 시계를 동기화한다.
+All nodes use timestamps recorded in commands by the leader. If the clock moves backward after leader replacement, buckets do not refill using a time earlier than their last recorded timestamp. Large forward clock jumps can refill accordingly, so synchronize node clocks.
 
-응답을 받기 전에 연결이 끊기거나 timeout이 발생하면 명령이 이미 기록되었을 수 있다. 내부 mutation은 자동 재시도하지 않는다. 요청이 `503`으로 끝났어도 요청 수가 차감될 수 있으며, 사용량 기록 실패 시 일부 사용량이 누락될 수 있다. 이미 시작한 upstream 응답은 그대로 전달하고 사용량 기록 실패를 경고 로그로 남긴다.
+A command may already be recorded if a connection closes or a timeout occurs before the response arrives. Internal mutations are not automatically retried. Requests ending with `503` may still consume request units, and failed usage recording can leave some usage uncounted. Upstream responses already started continue unchanged, and usage recording failures emit warnings.
 
-허용 판단과 사용량 기록마다 leader 및 과반수의 디스크 기록을 기다린다. 네트워크 지연과 저장 장치 성능이 처리량에 영향을 준다. 계정 상태는 모든 버킷을 완전히 보충할 만큼 유휴 시간이 지난 뒤 정리할 수 있고, 토큰 부채가 남은 상태는 유지한다.
+Every admission decision and usage record waits for disk writes on the leader and a majority. Network latency and storage performance affect throughput. Idle account state can be cleaned up after enough time to refill all buckets completely; state with remaining token debt is retained.
 
-## Admin 포트와 내부 통신
+## Admin port and internal communication
 
-추가 Raft 포트는 필요하지 않다. admin 리스너에 다음 내부 경로가 등록된다.
+No additional Raft port is needed. The admin listener registers these internal routes:
 
-| 메서드와 경로 | 동작 |
+| Method and path | Behavior |
 | --- | --- |
-| `CONNECT /internal/rate-limit/raft` | 인증 후 Raft 연결을 넘겨받아 투표, 로그 복제와 snapshot 전송 |
-| `POST /internal/rate-limit/apply` | follower가 leader에 허용 판단 또는 사용량 기록 전달 |
+| `CONNECT /internal/rate-limit/raft` | After authentication, hands off the Raft connection for voting, log replication, and snapshot transfer |
+| `POST /internal/rate-limit/apply` | Followers forward admission decisions or usage records to the leader |
 
-내부 요청은 공유 token과 peer 목록에서 계산한 클러스터 식별자를 확인한다. 다른 peer 목록이나 잘못된 token이면 요청을 거부한다. 내부 경로는 API 리스너와 Prometheus 리스너에 노출하지 않는다. 프록시 환경 변수와 HTTP redirect를 사용하지 않는다.
+Internal requests verify the shared token and a cluster identifier calculated from the peer list. A different peer list or invalid token is rejected. Internal routes are not exposed on API or Prometheus listeners. Proxy environment variables and HTTP redirects are not used.
 
-admin 통신은 HTTP이며 TLS를 제공하지 않는다. peer 간 직접 연결이 가능한 신뢰된 관리 네트워크에서 접근을 제한한다. 내부 경로의 token 검사는 `/config`를 보호하지 않으며, `/config`는 기존과 같이 별도 인증이 없다. 해당 포트의 외부 접근과 정책 변경 권한은 네트워크 계층에서 제한해야 한다.
+Admin communication uses HTTP without TLS. Restrict access to a trusted management network allowing direct peer connections. Internal route token checks do not protect `/config`, which has no separate authentication. Restrict external port access and policy modification permissions at the network layer.
 
-## 구현 근거
+## Implementation references
 
-[`distributed.go`](../../src/internal/bucket/distributed.go)는 `hashicorp/raft` v1.8.0의 `BootstrapCluster`, `Apply`, `Shutdown`과 `raft-boltdb/v2` v2.4.2의 `New`를 사용한다. `Apply` timeout은 명령 enqueue만 제한하므로, 호출자의 전체 대기 시간은 별도 context로 제한한다. 관련 공식 구현은 [Raft v1.8.0 api.go](https://github.com/hashicorp/raft/blob/v1.8.0/api.go)와 [raft-boltdb v2.4.2 bolt_store.go](https://github.com/hashicorp/raft-boltdb/blob/v2.4.2/bolt_store.go)에 있다.
+[`distributed.go`](../../src/internal/bucket/distributed.go) uses `BootstrapCluster`, `Apply`, and `Shutdown` from `hashicorp/raft` v1.8.0 and `New` from `raft-boltdb/v2` v2.4.2. The `Apply` timeout bounds only command enqueueing, so a separate context bounds the caller's total wait. See the official implementations in [Raft v1.8.0 api.go](https://github.com/hashicorp/raft/blob/v1.8.0/api.go) and [raft-boltdb v2.4.2 bolt_store.go](https://github.com/hashicorp/raft-boltdb/blob/v2.4.2/bolt_store.go).
 
-[`distributed_transport.go`](../../src/internal/bucket/distributed_transport.go)는 [Raft v1.8.0 net_transport.go의 StreamLayer](https://github.com/hashicorp/raft/blob/v1.8.0/net_transport.go)를 admin HTTP CONNECT 위에 구현한다. [`distributed_state.go`](../../src/internal/bucket/distributed_state.go)는 복제된 시간, 계정별 잔액과 snapshot을 관리한다.
+[`distributed_transport.go`](../../src/internal/bucket/distributed_transport.go) implements [Raft v1.8.0 net_transport.go's StreamLayer](https://github.com/hashicorp/raft/blob/v1.8.0/net_transport.go) over admin HTTP CONNECT. [`distributed_state.go`](../../src/internal/bucket/distributed_state.go) manages replicated timestamps, per-account balances, and snapshots.

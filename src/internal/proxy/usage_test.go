@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"math"
@@ -33,16 +34,28 @@ func TestResponseUsage(t *testing.T) {
 		{name: "responses fallback", payload: `{"usage":{"input_tokens":10,"output_tokens":20,"output_tokens_details":{"reasoning_tokens":7}}}`, want: 30, valid: true},
 		{name: "null total fallback", payload: `{"usage":{"total_tokens":null,"input_tokens":10,"output_tokens":20}}`, want: 30, valid: true},
 		{name: "zero", payload: `{"usage":{"total_tokens":0}}`, valid: true},
+		{name: "negative zero", payload: `{"usage":{"total_tokens":-0}}`, valid: true},
+		{name: "whitespace count", payload: `{"usage":{"total_tokens": 12 }}`, want: 12, valid: true},
+		{name: "case insensitive keys", payload: `{"USAGE":{"TOTAL_TOKENS":12}}`, want: 12, valid: true},
+		{name: "Unicode folded key", payload: `{"uſage":{"total_tokens":12}}`, want: 12, valid: true},
+		{name: "escaped usage key", payload: `{"u\u0073age":{"total_tokens":12}}`, want: 12, valid: true},
+		{name: "escaped preceding content", payload: `{"content":"a\"b","usage":{"total_tokens":12}}`, want: 12, valid: true},
+		{name: "escaped nested usage key", payload: `{"response":{"\u0075sage":{"total_tokens":12}}}`, want: 12, valid: true},
+		{name: "quoted usage content", payload: `{"content":"usage"}`},
 		{name: "integer precision", payload: `{"usage":{"total_tokens":9007199254740993}}`, want: 9007199254740993, valid: true},
 		{name: "maximum integer", payload: `{"usage":{"total_tokens":9223372036854775807}}`, want: math.MaxInt64, valid: true},
 		{name: "maximum sum", payload: `{"usage":{"input_tokens":9223372036854775800,"output_tokens":7}}`, want: math.MaxInt64, valid: true},
 		{name: "null usage", payload: `{"usage":null}`},
+		{name: "null usage before nested usage", payload: `{"usage":null,"response":{"usage":{"total_tokens":12}}}`, want: 12, valid: true},
+		{name: "null usage before repeated usage", payload: `{"usage":null,"usage":{"total_tokens":12}}`, want: 12, valid: true},
+		{name: "repeated null usage", payload: `{"usage":{"total_tokens":12},"usage":null}`},
 		{name: "missing usage", payload: `{"choices":[]}`},
 		{name: "incomplete counts", payload: `{"usage":{"input_tokens":9}}`},
 		{name: "null count", payload: `{"usage":{"input_tokens":null,"output_tokens":9}}`},
 		{name: "negative total", payload: `{"usage":{"total_tokens":-1}}`},
 		{name: "negative component", payload: `{"usage":{"prompt_tokens":-1,"completion_tokens":9}}`},
 		{name: "fraction", payload: `{"usage":{"total_tokens":1.5}}`},
+		{name: "exponent", payload: `{"usage":{"total_tokens":1e2}}`},
 		{name: "string", payload: `{"usage":{"total_tokens":"12"}}`},
 		{name: "overflow", payload: `{"usage":{"total_tokens":9223372036854775808}}`},
 		{name: "sum overflow", payload: `{"usage":{"input_tokens":9223372036854775807,"output_tokens":1}}`},
@@ -60,6 +73,29 @@ func TestResponseUsage(t *testing.T) {
 			got, valid := responseUsage([]byte(test.payload), test.eventType, test.streaming)
 			if got != test.want || valid != test.valid {
 				t.Fatalf("responseUsage = (%d, %t), want (%d, %t)", got, valid, test.want, test.valid)
+			}
+		})
+	}
+}
+
+func TestUsageEventsFragmentBoundaries(t *testing.T) {
+	for _, ending := range []string{"\n", "\r", "\r\n"} {
+		t.Run(fmt.Sprintf("ending_%q", ending), func(t *testing.T) {
+			payload := []byte(strings.Join([]string{
+				": keepalive", "event: response.completed", `data: {"response":`,
+				`data: {"usage":{"total_tokens":12}}}`, "", "", "data: [DONE]", "", "",
+			}, ending))
+			for split := 0; split <= len(payload); split++ {
+				var got int64
+				body := &usageBody{ctx: context.Background(), record: func(_ context.Context, tokens int64) { got += tokens }}
+				events := usageEvents{observe: body.observe}
+				events.feed(payload[:split])
+				events.feed(nil)
+				events.feed(payload[split:])
+				events.finish()
+				if got != 12 {
+					t.Fatalf("split %d: usage = %d, want 12", split, got)
+				}
 			}
 		})
 	}

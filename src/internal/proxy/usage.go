@@ -9,6 +9,7 @@ import (
 	"mime"
 	"net/http"
 	"net/http/httputil"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -32,8 +33,8 @@ func WithUsageRecorder(record func(context.Context, int64)) Option {
 			}
 			if eligible {
 				request.Out.Header.Set("Accept-Encoding", "identity")
+				request.Out = request.Out.WithContext(context.WithValue(request.Out.Context(), usageEligibleKey{}, true))
 			}
-			request.Out = request.Out.WithContext(context.WithValue(request.Out.Context(), usageEligibleKey{}, eligible))
 		}
 		modifyResponse := proxy.ModifyResponse
 		proxy.ModifyResponse = func(response *http.Response) error {
@@ -161,6 +162,9 @@ func (body *usageBody) observe(payload []byte, eventType string, streaming bool)
 }
 
 func responseUsage(payload []byte, eventType string, streaming bool) (int64, bool) {
+	if !mayContainUsage(payload) {
+		return 0, false
+	}
 	var response struct {
 		Type     string          `json:"type"`
 		Usage    json.RawMessage `json:"usage"`
@@ -190,7 +194,38 @@ func responseUsage(payload []byte, eventType string, streaming bool) (int64, boo
 	return usageTotal(response.Response.Usage)
 }
 
+// Events without non-null usage can skip JSON decoding. Escaped strings still
+// use the decoder so escaped keys and case-insensitive matching remain supported.
+func mayContainUsage(payload []byte) bool {
+	for len(payload) > 0 {
+		start := bytes.IndexByte(payload, '"')
+		if start < 0 {
+			return false
+		}
+		payload = payload[start+1:]
+		end := bytes.IndexByte(payload, '"')
+		if end < 0 {
+			return false
+		}
+		value := payload[:end]
+		if bytes.IndexByte(value, '\\') >= 0 {
+			return true
+		}
+		if bytes.EqualFold(value, []byte("usage")) {
+			remainder := bytes.TrimSpace(payload[end+1:])
+			if len(remainder) == 0 || remainder[0] != ':' || !bytes.HasPrefix(bytes.TrimSpace(remainder[1:]), []byte("null")) {
+				return true
+			}
+		}
+		payload = payload[end+1:]
+	}
+	return false
+}
+
 func usageTotal(payload json.RawMessage) (int64, bool) {
+	if len(payload) == 0 || bytes.Equal(payload, []byte("null")) {
+		return 0, false
+	}
 	var usage struct {
 		Total      json.RawMessage `json:"total_tokens"`
 		Prompt     json.RawMessage `json:"prompt_tokens"`
@@ -220,11 +255,11 @@ func tokenSum(first, second json.RawMessage) (int64, bool) {
 }
 
 func tokenCount(payload json.RawMessage) (int64, bool) {
-	var value *int64
-	if err := json.Unmarshal(payload, &value); err != nil || value == nil || *value < 0 {
+	if len(payload) == 0 || (payload[0] != '-' && (payload[0] < '0' || payload[0] > '9')) {
 		return 0, false
 	}
-	return *value, true
+	value, err := strconv.ParseInt(string(payload), 10, 64)
+	return value, err == nil && value >= 0
 }
 
 // usageEvents recognizes line endings across transport reads without delaying
@@ -241,30 +276,38 @@ type usageEvents struct {
 }
 
 func (events *usageEvents) feed(payload []byte) {
-	for _, value := range payload {
+	for len(payload) > 0 {
 		if events.previousCR {
 			events.previousCR = false
-			if value == '\n' {
+			if payload[0] == '\n' {
+				payload = payload[1:]
 				continue
 			}
 		}
-		if value == '\r' || value == '\n' {
-			events.endLine()
-			events.previousCR = value == '\r'
-			continue
+		end := bytes.IndexAny(payload, "\r\n")
+		if end < 0 {
+			end = len(payload)
 		}
-		events.lineNonEmpty = true
-		if !events.tooLarge {
-			events.eventBytes++
-			if events.eventBytes > maxUsageObservationBytes {
-				events.tooLarge = true
-				events.line = nil
-				events.data = nil
-				events.eventType = ""
-			} else {
-				events.line = append(events.line, value)
+		if end > 0 {
+			events.lineNonEmpty = true
+			if !events.tooLarge {
+				if end > maxUsageObservationBytes-events.eventBytes {
+					events.tooLarge = true
+					events.line = nil
+					events.data = nil
+					events.eventType = ""
+				} else {
+					events.eventBytes += end
+					events.line = append(events.line, payload[:end]...)
+				}
 			}
 		}
+		if end == len(payload) {
+			return
+		}
+		events.endLine()
+		events.previousCR = payload[end] == '\r'
+		payload = payload[end+1:]
 	}
 }
 

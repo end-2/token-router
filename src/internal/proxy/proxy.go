@@ -12,6 +12,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"token-router/src/internal/config"
@@ -57,10 +58,11 @@ func New(cfg config.Upstream, logger *slog.Logger, options ...Option) (*Handler,
 	transport.DisableCompression = true
 
 	handler := &Handler{transport: transport, logger: logger, requestTimeout: cfg.RequestTimeout, router: routing}
+	authorization := "Bearer " + cfg.APIKey
 	handler.proxy = &httputil.ReverseProxy{
-		Transport:     transport,
-		FlushInterval: -1,
-		ErrorLog:      log.New(safeErrorWriter{logger: logger}, "", 0),
+		Transport:  transport,
+		BufferPool: responseBuffers,
+		ErrorLog:   log.New(safeErrorWriter{logger: logger}, "", 0),
 		Rewrite: func(request *httputil.ProxyRequest) {
 			target := request.In.Context().Value(upstreamTargetKey{}).(*url.URL)
 			request.SetURL(target)
@@ -69,12 +71,12 @@ func New(cfg config.Upstream, logger *slog.Logger, options ...Option) (*Handler,
 			request.Out.URL.Fragment = ""
 			request.Out.RequestURI = ""
 			for key := range request.Out.Header {
-				if strings.EqualFold(key, "Forwarded") || strings.HasPrefix(strings.ToLower(key), "x-forwarded-") {
+				if strings.EqualFold(key, "Forwarded") || (len(key) >= len("X-Forwarded-") && strings.EqualFold(key[:len("X-Forwarded-")], "X-Forwarded-")) {
 					delete(request.Out.Header, key)
 				}
 			}
 			if cfg.APIKey != "" {
-				request.Out.Header.Set("Authorization", "Bearer "+cfg.APIKey)
+				request.Out.Header.Set("Authorization", authorization)
 			}
 			if cfg.Organization != "" {
 				request.Out.Header.Set("OpenAI-Organization", cfg.Organization)
@@ -95,6 +97,28 @@ func New(cfg config.Upstream, logger *slog.Logger, options ...Option) (*Handler,
 		option(handler.proxy)
 	}
 	return handler, nil
+}
+
+const responseBufferSize = 32 << 10
+
+var responseBuffers = &responseBufferPool{}
+
+// Array pointers avoid allocating a slice header when returning buffers to the pool.
+type responseBufferPool struct {
+	pool sync.Pool
+}
+
+func (pool *responseBufferPool) Get() []byte {
+	if buffer := pool.pool.Get(); buffer != nil {
+		return buffer.(*[responseBufferSize]byte)[:]
+	}
+	return make([]byte, responseBufferSize)
+}
+
+func (pool *responseBufferPool) Put(buffer []byte) {
+	if cap(buffer) == responseBufferSize {
+		pool.pool.Put((*[responseBufferSize]byte)(buffer[:responseBufferSize]))
+	}
 }
 
 // ServeHTTP forwards an HTTP request and propagates cancellation to the upstream.

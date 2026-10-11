@@ -23,6 +23,9 @@ type upstreamPool struct {
 }
 
 func (pool *upstreamPool) selectTarget() *url.URL {
+	if len(pool.targets) == 1 {
+		return pool.targets[0]
+	}
 	return pool.targets[(pool.next.Add(1)-1)%uint64(len(pool.targets))]
 }
 
@@ -96,6 +99,9 @@ func newUpstreamPool(addresses []string) (*upstreamPool, error) {
 }
 
 func splitRouteHost(authority string) (string, string) {
+	if !strings.Contains(authority, ":") {
+		return strings.ToLower(strings.TrimSuffix(strings.Trim(authority, "[]"), ".")), ""
+	}
 	host, port, err := net.SplitHostPort(authority)
 	if err != nil {
 		host, port = strings.Trim(authority, "[]"), ""
@@ -109,6 +115,9 @@ type routingError struct {
 }
 
 func (routing *router) selectTarget(writer http.ResponseWriter, request *http.Request) (*url.URL, *routingError) {
+	if len(routing.routes) == 0 && routing.fallback != nil {
+		return routing.fallback.selectTarget(), nil
+	}
 	host, port := splitRouteHost(request.Host)
 	needsModel := false
 	for _, route := range routing.routes {

@@ -2,26 +2,6 @@
 
 `tests/kind/` creates a Kubernetes test environment on Docker. It deploys Redis, Collector, Prometheus, Tempo, Loki, and Grafana from `deploy/components/`, together with a sample HTTP service named `kind-echo`, to check cluster readiness and network paths. It does not automatically deploy the proxy application in `src/`. See [Proxy server development and execution](proxy-server.md) for proxy image builds and execution, [Ginkgo E2E tests](end-to-end-tests.md) for application scenarios, and [Deployment components and OpenTelemetry](deployment-components.md) for component settings and data paths.
 
-## Directory layout
-
-```text
-tests/kind/
-  config.yaml
-  manifests/
-    kustomization.yaml
-    namespace.yaml
-    echo.yaml
-  smoke/
-    job.yaml
-  scripts/
-    kind.sh
-```
-
-- [`config.yaml`](../../tests/kind/config.yaml): kind nodes, Kubernetes images, and host port mappings
-- [`manifests/`](../../tests/kind/manifests/): test namespace, HTTP Deployment and NodePort Service, and shared deployment component references
-- [`smoke/job.yaml`](../../tests/kind/smoke/job.yaml): Job checking cluster DNS, HTTP, Redis, and observability Service responses
-- [`scripts/kind.sh`](../../tests/kind/scripts/kind.sh): environment creation, validation, status inspection, image loading, and deletion
-
 ## Required tools
 
 - A running Docker Engine or Docker Desktop
@@ -42,30 +22,6 @@ kubectl version --client
 ```
 
 Node images use the Kubernetes v1.37.0 tag and digest from the [kind v0.33.0 release](https://github.com/kubernetes-sigs/kind/releases/tag/v0.33.0), matching `kind`'s [`pkg/apis/config/defaults/image.go`, `Image`](https://github.com/kubernetes-sigs/kind/blob/v0.33.0/pkg/apis/config/defaults/image.go). Sample HTTP server and smoke Job images are also pinned by digest.
-
-## Cluster configuration
-
-| Item | Setting |
-| --- | --- |
-| Cluster name | `token-router-test` |
-| kubeconfig context | `kind-token-router-test` |
-| Nodes | One control-plane and two workers |
-| Test namespace | `token-router-test` |
-| HTTP Deployment | `kind-echo`, two replicas |
-| In-cluster HTTP address | `http://kind-echo.token-router-test.svc.cluster.local` |
-| Host HTTP address | `http://127.0.0.1:18080` |
-| Port path | Host `18080` -> control-plane `30080` -> Service `80` -> Pod `5678` |
-| HTTP response body | `token-router-kind-ready` |
-| In-cluster Redis address | `redis.token-router-test.svc.cluster.local:6379` |
-| Redis StatefulSet | `redis`, one replica, `1Gi` PVC |
-
-`podAntiAffinity` places the two HTTP Pods on separate nodes. No toleration is added for the default control-plane taint, so HTTP Pods run on the two workers.
-
-The Deployment's `maxSurge: 0` and `maxUnavailable: 1` allow HTTP Pods to be replaced one at a time even when the two workers cannot accommodate an additional Pod.
-
-The kind `extraPortMappings.containerPort` and Service `nodePort` both use `30080` and must match. See [kind Configuration's NodePort guidance](https://kind.sigs.k8s.io/docs/user/configuration/#nodeport-with-port-mappings). Kubernetes API and HTTP ports bind to host address `127.0.0.1`.
-
-`kind-echo` configures its response and port using HashiCorp `http-echo` v1.0.0 arguments `-text` and `-listen`. Readiness and liveness probes use `/health`. See [`hashicorp/http-echo`, `main.go`, `main` and `httpHealth`, v1.0.0](https://github.com/hashicorp/http-echo/blob/v1.0.0/main.go) for implementation details.
 
 ## Creation and validation
 
@@ -97,6 +53,30 @@ Check the response directly from the host:
 ```sh
 curl --noproxy '*' --fail http://127.0.0.1:18080
 ```
+
+## Cluster configuration
+
+| Item | Setting |
+| --- | --- |
+| Cluster name | `token-router-test` |
+| kubeconfig context | `kind-token-router-test` |
+| Nodes | One control-plane and two workers |
+| Test namespace | `token-router-test` |
+| HTTP Deployment | `kind-echo`, two replicas |
+| In-cluster HTTP address | `http://kind-echo.token-router-test.svc.cluster.local` |
+| Host HTTP address | `http://127.0.0.1:18080` |
+| Port path | Host `18080` -> control-plane `30080` -> Service `80` -> Pod `5678` |
+| HTTP response body | `token-router-kind-ready` |
+| In-cluster Redis address | `redis.token-router-test.svc.cluster.local:6379` |
+| Redis StatefulSet | `redis`, one replica, `1Gi` PVC |
+
+`podAntiAffinity` places the two HTTP Pods on separate nodes. No toleration is added for the default control-plane taint, so HTTP Pods run on the two workers.
+
+The Deployment's `maxSurge: 0` and `maxUnavailable: 1` allow HTTP Pods to be replaced one at a time even when the two workers cannot accommodate an additional Pod.
+
+The kind `extraPortMappings.containerPort` and Service `nodePort` both use `30080` and must match. See [kind Configuration's NodePort guidance](https://kind.sigs.k8s.io/docs/user/configuration/#nodeport-with-port-mappings). Kubernetes API and HTTP ports bind to host address `127.0.0.1`.
+
+`kind-echo` configures its response and port using HashiCorp `http-echo` v1.0.0 arguments `-text` and `-listen`. Readiness and liveness probes use `/health`. See [`hashicorp/http-echo`, `main.go`, `main` and `httpHealth`, v1.0.0](https://github.com/hashicorp/http-echo/blob/v1.0.0/main.go) for implementation details.
 
 ## kubeconfig and configuration changes
 
@@ -140,6 +120,26 @@ make kind-load IMAGE=token-router:dev
 `make kind-load` neither builds images nor deploys the application. Application Deployments must use the image name and `imagePullPolicy: IfNotPresent` or `Never`. Loading an image alone does not replace running Pods. If adding application resources to `tests/kind/manifests/`, also register them in `kustomization.yaml` under `resources`.
 
 The script exports only the Docker daemon's platform image to a temporary archive and loads it into all nodes with `kind load image-archive`. The archive is removed when the command exits. This avoids loading undownloaded image manifests for other platforms. The default save path for `kind load docker-image` does not specify a platform. See [`kubernetes-sigs/kind`, `pkg/cmd/kind/load/docker-image/docker-image.go`, `save`, v0.33.0](https://github.com/kubernetes-sigs/kind/blob/v0.33.0/pkg/cmd/kind/load/docker-image/docker-image.go).
+
+## Directory layout
+
+```text
+tests/kind/
+  config.yaml
+  manifests/
+    kustomization.yaml
+    namespace.yaml
+    echo.yaml
+  smoke/
+    job.yaml
+  scripts/
+    kind.sh
+```
+
+- [`config.yaml`](../../tests/kind/config.yaml): kind nodes, Kubernetes images, and host port mappings
+- [`manifests/`](../../tests/kind/manifests/): test namespace, HTTP Deployment and NodePort Service, and shared deployment component references
+- [`smoke/job.yaml`](../../tests/kind/smoke/job.yaml): Job checking cluster DNS, HTTP, Redis, and observability Service responses
+- [`scripts/kind.sh`](../../tests/kind/scripts/kind.sh): environment creation, validation, status inspection, image loading, and deletion
 
 ## Deletion and troubleshooting
 

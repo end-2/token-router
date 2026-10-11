@@ -6,14 +6,16 @@ The benchmarks separate proxy processing costs from upstream network latency and
 
 [`BenchmarkProxyPipeline`](../../src/internal/app/performance_test.go) exercises Echo routing, admission, proxy forwarding, and enabled observability with an in-process upstream transport. It checks response status and byte count. The scenarios cover disabled observability, default logging and Prometheus metrics, account identification, model routing, JSON usage, and SSE usage.
 
+The upstream response and log destination are in memory. These results do not measure socket writes, TLS, external log collection, Redis round trips, Raft commit latency, model inference, or time to first token. Validate those costs with representative deployment traffic and upstreams before selecting production settings. Allocation rates describe bytes allocated per operation, not retained heap size.
+
 ```sh
 go test ./src/internal/app -run '^$' \
   -bench '^BenchmarkProxyPipeline$' -benchmem -benchtime=1s -count=5 -cpu=1,4
 ```
 
-The upstream response and log destination are in memory. These results do not measure socket writes, TLS, external log collection, Redis round trips, Raft commit latency, model inference, or time to first token. Validate those costs with representative deployment traffic and upstreams before selecting production settings. Allocation rates describe bytes allocated per operation, not retained heap size.
-
 ## Component benchmarks
+
+The proxy benchmarks include response copying, routing, and SSE event observation. The memory limiter benchmarks compare serial and parallel admission for one or many accounts. The distributed limiter benchmark measures usage accounting when token limiting is disabled. Observability benchmarks cover disabled signals, filtered logs, enabled logs and metrics, and sampled or unsampled upstream traces.
 
 ```sh
 go test ./src/internal/proxy/... ./src/internal/bucket/... ./src/internal/observability/... \
@@ -22,9 +24,9 @@ go test ./src/internal/app -run '^$' \
   -bench '^BenchmarkAccountIdentifier$' -benchmem -benchtime=1s -count=5
 ```
 
-The proxy benchmarks include response copying, routing, and SSE event observation. The memory limiter benchmarks compare serial and parallel admission for one or many accounts. The distributed limiter benchmark measures usage accounting when token limiting is disabled. Observability benchmarks cover disabled signals, filtered logs, enabled logs and metrics, and sampled or unsampled upstream traces.
-
 ## CPU and allocation profiles
+
+Measure normal builds for performance and use the race detector separately for correctness. Instrumentation changes timings and allocation behavior.
 
 Store profiles outside the repository. The following commands use a temporary directory and the benchmark's compiled binary for symbol resolution:
 
@@ -37,8 +39,6 @@ go test ./src/internal/app -run '^$' \
 go tool pprof -top "$profile_dir/app.test" "$profile_dir/cpu.out"
 go tool pprof -alloc_space -top "$profile_dir/app.test" "$profile_dir/memory.out"
 ```
-
-Measure normal builds for performance and use the race detector separately for correctness. Instrumentation changes timings and allocation behavior.
 
 ## Configuration costs
 

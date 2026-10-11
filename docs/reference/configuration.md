@@ -1,5 +1,7 @@
 # Application configuration
 
+Startup configuration applies defaults, main YAML, environment variables, and explicit CLI arguments in order. A configured policy file applies last and overrides explicitly supplied upstream settings, rate limit values, and account settings. These policy settings can change at runtime; backend selection, listeners, and telemetry require a restart. See [Policy configuration and admin API](../operations/policy-configuration.md) for runtime updates.
+
 ## Application order
 
 Configuration precedence follows this order. Later values override earlier ones.
@@ -66,6 +68,8 @@ All leaf settings can be changed through environment variables and CLI arguments
 | `telemetry.logs.level` | `TOKEN_ROUTER_TELEMETRY_LOGS_LEVEL` | `--telemetry-logs-level` |
 | `telemetry.logs.format` | `TOKEN_ROUTER_TELEMETRY_LOGS_FORMAT` | `--telemetry-logs-format` |
 
+Boolean arguments without values, such as `--telemetry-metrics-prometheus-enabled`, set `true`. Use an equals sign for `false`, as in `--telemetry-metrics-prometheus-enabled=false`. An explicitly empty `TOKEN_ROUTER_CONFIG` or `--config` path is an error.
+
 `go run ./src/cmd/token-router --help` shows the full CLI and corresponding environment variable names. The following disables the policy file and applies main YAML settings, the environment address, and the CLI burst. With a policy file enabled, explicit file values override CLI values.
 
 ```sh
@@ -73,11 +77,22 @@ TOKEN_ROUTER_SERVER_ADDRESS=127.0.0.1:8081 \
   go run ./src/cmd/token-router serve --config config.yaml --policy-file= --rate-limit-burst 50
 ```
 
-Boolean arguments without values, such as `--telemetry-metrics-prometheus-enabled`, set `true`. Use an equals sign for `false`, as in `--telemetry-metrics-prometheus-enabled=false`. An explicitly empty `TOKEN_ROUTER_CONFIG` or `--config` path is an error.
-
 ## Multiple upstream routing
 
 `upstream.routes` in `policy.yaml` maps the request `Host` header and the JSON body's top-level `model` to destination arrays. `base_urls` accepts both `http` or `https` URLs and `host:port` addresses. Addresses without a scheme use HTTP and require a port. Enclose IPv6 addresses in brackets, such as `[::1]:9000`.
+
+- When both `host` and `model` are specified, both must match. Omitted or empty conditions match all values. Rules omitting both conditions are shared defaults. Each rule's `base_urls` must contain at least one address.
+- Rules with more specified conditions take precedence: combined `host` and `model`, then single conditions, then shared defaults. If distinct rules with the same condition count both match, the first configured rule wins.
+- `host` ignores case and a trailing hostname dot. Without a configured port, the request port is ignored; with a configured port, it is also compared. `X-Forwarded-Host` is not used. Wildcards, regular expressions, and URL-form conditions are unsupported.
+- `model` uses exact, case-sensitive string matching. Missing, `null`, or empty `model` values do not satisfy model conditions. Nested `model` fields and other keys such as `MODEL` are not used.
+- Repeated identical `host` and `model` conditions merge address arrays in registration order. Conditions identical after host normalization are also merged.
+- Addresses in the selected rule use per-process round robin. Each rule has an independent counter that also applies to concurrent requests. Separate health checks, weights, and retries to other addresses after failure are not implemented.
+
+If no rule matches, `upstream.base_urls` supplies the default pool, defaulting to `["https://api.openai.com"]`. Even a single upstream uses a one-element array. Set only `base_urls` to distribute requests across destinations without conditions.
+
+To reject unmatched requests, empty the default pool with `upstream.base_urls: []`. Requests without a matching rule then return `404` and `route_not_found`. Configuration with no destinations anywhere fails startup validation.
+
+In the following example, `api.example.com` requests for `chat-model` cycle through three addresses from the two rules with identical conditions.
 
 ```yaml
 upstream:
@@ -102,17 +117,6 @@ upstream:
         - "http://embedding-a:8000"
         - "http://embedding-b:8000"
 ```
-
-- When both `host` and `model` are specified, both must match. Omitted or empty conditions match all values. Rules omitting both conditions are shared defaults. Each rule's `base_urls` must contain at least one address.
-- Rules with more specified conditions take precedence: combined `host` and `model`, then single conditions, then shared defaults. If distinct rules with the same condition count both match, the first configured rule wins.
-- `host` ignores case and a trailing hostname dot. Without a configured port, the request port is ignored; with a configured port, it is also compared. `X-Forwarded-Host` is not used. Wildcards, regular expressions, and URL-form conditions are unsupported.
-- `model` uses exact, case-sensitive string matching. Missing, `null`, or empty `model` values do not satisfy model conditions. Nested `model` fields and other keys such as `MODEL` are not used.
-- Repeated identical `host` and `model` conditions merge address arrays in registration order. In the example, `api.example.com` requests for `chat-model` cycle through three addresses. Conditions identical after host normalization are also merged.
-- Addresses in the selected rule use per-process round robin. Each rule has an independent counter that also applies to concurrent requests. Separate health checks, weights, and retries to other addresses after failure are not implemented.
-
-If no rule matches, `upstream.base_urls` supplies the default pool, defaulting to `["https://api.openai.com"]`. Even a single upstream uses a one-element array. Set only `base_urls` to distribute requests across destinations without conditions.
-
-To reject unmatched requests, empty the default pool with `upstream.base_urls: []`. Requests without a matching rule then return `404` and `route_not_found`. Configuration with no destinations anywhere fails startup validation.
 
 Arrays can also be supplied through environment variables and CLI arguments. These examples disable the policy file and supply arrays through startup configuration.
 
@@ -184,6 +188,10 @@ Request buckets consume one unit for every admitted request. `rate_limit.request
 
 Token usage buckets use `rate_limit.tokens_per_second` and `rate_limit.token_burst`, both defaulting to `0` for request-only limiting. To enable token limits, set both the per-second refill rate `rate_limit.tokens_per_second` and capacity `rate_limit.token_burst` positive. Setting exactly one value to `0` is invalid. Bursts are integers; refill rates may be fractional. Refill rates cannot be `NaN` or infinite, and a full refill period for an active bucket must fit in Go `time.Duration`.
 
+Buckets start full. Admission requires at least one request unit and, when enabled, at least one token unit. If either is insufficient, no request unit is deducted, and the response is `429` with `Retry-After` in seconds. `Retry-After` rounds up the wait until both balances recover, capped at the maximum Go `time.Duration`. There is no queue; health, readiness, and metrics do not consume limits.
+
+Tokens are neither estimated nor reserved at admission; they are deducted after usage is observed in upstream responses. Usage exceeding the balance or `rate_limit.token_burst` produces a negative balance, blocking subsequent requests until refill restores at least one token. Already admitted requests and concurrent streams continue, so this is not a strict token cap covering in-progress requests. For example, a request admitted with 60,000 tokens that uses 70,000 blocks later requests until 10,001 tokens refill.
+
 Keep `rate_limit.enabled: true` and `rate_limit.backend: memory` in `config.yaml` and set these values in `policy.yaml`. Requests refill at 10 per second with a maximum of 20; model tokens refill at 1,000 per second with a maximum of 60,000.
 
 ```yaml
@@ -194,13 +202,11 @@ rate_limit:
   token_burst: 60000
 ```
 
-Buckets start full. Admission requires at least one request unit and, when enabled, at least one token unit. If either is insufficient, no request unit is deducted, and the response is `429` with `Retry-After` in seconds. `Retry-After` rounds up the wait until both balances recover, capped at the maximum Go `time.Duration`. There is no queue; health, readiness, and metrics do not consume limits.
-
-Tokens are neither estimated nor reserved at admission; they are deducted after usage is observed in upstream responses. Usage exceeding the balance or `rate_limit.token_burst` produces a negative balance, blocking subsequent requests until refill restores at least one token. Already admitted requests and concurrent streams continue, so this is not a strict token cap covering in-progress requests. For example, a request admitted with 60,000 tokens that uses 70,000 blocks later requests until 10,001 tokens refill.
-
 ### Per-account limits
 
 The default `rate_limit.account.enabled: false` uses one global bucket. Enabling the following in `policy.yaml` creates separate request and token usage buckets per account. The same `requests_per_second`, `burst`, `tokens_per_second`, and `token_burst` values apply to every account. Individual account-specific values and an additional global cap above account buckets are not provided.
+
+This feature only extracts identifiers. It does not verify Basic passwords or JWT signatures, issuers, audiences, or expiry. Clients can change identifiers in unverified JWT payloads; trusting per-account limits requires an authentication layer in front of the proxy to validate the same header. Even with `upstream.api_key` configured, accounts are determined from the incoming `Authorization` before upstream header replacement.
 
 ```yaml
 rate_limit:
@@ -220,8 +226,6 @@ Authentication schemes in `Authorization` are case-insensitive.
 - Identical identifier strings from either scheme share a bucket. Issuers and authentication schemes are not added as separate namespaces. Case and surrounding whitespace are not normalized.
 
 Missing or multiple `Authorization` headers, unsupported schemes, invalid encoding, and missing identifiers return `401` and `rate_limit_account_required`. Identifiers must be UTF-8 strings without control characters, no more than 1,024 bytes, and not whitespace-only. Authentication headers up to 16 KiB are accepted for extraction. There is no fallback to an anonymous global bucket. With `rate_limit.enabled: false`, account extraction is also skipped.
-
-This feature only extracts identifiers. It does not verify Basic passwords or JWT signatures, issuers, audiences, or expiry. Clients can change identifiers in unverified JWT payloads; trusting per-account limits requires an authentication layer in front of the proxy to validate the same header. Even with `upstream.api_key` configured, accounts are determined from the incoming `Authorization` before upstream header replacement.
 
 Backends receive SHA-256 identifier hashes; Basic passwords, raw JWTs, and raw identifiers are not used as storage keys. Redis account keys append `:account:<hash>` to `rate_limit.redis.key`. Memory and distributed memory maintain per-account state, clean up fully refilled idle state, and retain remaining token debt.
 

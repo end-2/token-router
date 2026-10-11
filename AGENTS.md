@@ -28,6 +28,10 @@ This document provides shared instructions for AI agents working in this reposit
 
 ## 3. Documentation Structure and Maintenance
 
+- Always organize documents and their sections top-down, from decisive information to supporting detail. Begin with the main conclusion, decision, required action, or governing rule and its scope. Follow with the rationale, procedures or examples, and implementation details or references.
+- Put prerequisites and constraints that affect a reader's decision before the affected procedure or example. Keep procedural steps in execution order after stating the intended outcome and prerequisites.
+- Introduce the overall behavior before package inventories, directory layouts, exhaustive configuration tables, or background. Within each section, state the rule before showing its examples. Apply this structure to reference documents and historical records as well as guides.
+- When reviewing or updating existing documentation, check both document-level and section-level ordering. Move existing explanations where possible instead of adding duplicate summaries. Documentation indexes should orient readers before listing detailed links.
 - Store documentation in `docs/`, organized by topic.
 - Keep the root `README.md` as the project introduction and documentation entry point, and `AGENTS.md` as the agent instructions.
 - The root `README.md` contains a short project overview, minimal getting-started guidance, and links to key documents. Maintain detailed feature behavior, configuration keys and examples, API specifications, operational procedures, and constraints in the relevant documents under `docs/`.
@@ -69,6 +73,6 @@ docs/
 1. Inspect the applicable `AGENTS.md`, documentation index, relevant code, and Git status.
 2. Identify differences between requirements and the current implementation, and inspect the code evidence needed for decisions.
 3. Make the necessary changes. Preserve existing user changes and avoid edits outside the requested scope.
-4. Update affected ordinary documentation and comments to reflect the current state. Store historical records separately if needed.
-5. Validate according to the change. For documentation-only changes, check paths, links, terminology, formatting, and factual accuracy.
+4. Update affected ordinary documentation and comments to reflect the current state. Check top-down ordering in the documents and sections being reviewed, and revise ordering where needed. Store historical records separately if needed.
+5. Validate according to the change. For documentation-only changes, check top-down ordering, paths, links, terminology, formatting, and factual accuracy.
 6. Report changes, evidence, validation results, and remaining unverified conditions concisely. Do not claim to have completed checks that were not run.

@@ -2,6 +2,20 @@
 
 With `rate_limit.backend: memory` and `rate_limit.memory.distributed.enabled: true`, multiple token-router processes share request count and token usage balances without Redis. Each process participates as a Raft voter, and the elected leader serializes admission decisions and usage recording. Results return after applying commands recorded on a majority. With account limiting enabled, balances are shared for the same account; otherwise, the entire cluster shares one bucket.
 
+## Recovery and availability
+
+For production, use an odd number of voters, at least three. A majority must communicate to complete admission decisions, such as two of three or three of five. A single node is allowed but has no fault tolerance. A two-node cluster loses its majority when either node stops.
+
+When the leader fails, the remaining majority elects another leader and retains replicated balances. During elections or when commands cannot be recorded on a majority, admission fails with `503`. There is no automatic fallback to per-process `memory` buckets. `/readyz` reports only HTTP server startup and shutdown state and does not guarantee cluster majority availability.
+
+Relative `data_dir` paths are resolved from the main configuration file's directory. Use a separate directory for each node and retain the same address and directory across restarts. Containers need persistent volumes writable by their runtime UID. Restarts recover balances from snapshots and logs. Logs and snapshots use SHA-256 account identifier hashes and do not store raw authentication headers or tokens. Deleting every node's data makes existing usage unrecoverable.
+
+All nodes use timestamps recorded in commands by the leader. If the clock moves backward after leader replacement, buckets do not refill using a time earlier than their last recorded timestamp. Large forward clock jumps can refill accordingly, so synchronize node clocks.
+
+A command may already be recorded if a connection closes or a timeout occurs before the response arrives. Internal mutations are not automatically retried. Requests ending with `503` may still consume request units, and failed usage recording can leave some usage uncounted. Upstream responses already started continue unchanged, and usage recording failures emit warnings.
+
+Every admission decision and usage record waits for disk writes on the leader and a majority. Network latency and storage performance affect throughput. Idle account state can be cleaned up after enough time to refill all buckets completely; state with remaining token debt is retained.
+
 ## Configuration and service discovery
 
 The following `config.yaml` configures the first node. `peers` lists every node's `IP:admin-port`, including the node itself. All nodes use the same list and shared token, while `address` and the data directory are specific to each node.
@@ -74,21 +88,9 @@ Deploy the same policy to all nodes. Policy files and admin `/config` changes ap
 
 When applying a command with new values, distributed buckets compute the account balance using the previous refill rate, then apply the new capacity. Increasing capacity does not refill existing balances, and token debt is preserved. Disabling and reenabling token limits follows the usage observation rules in [Policy configuration](policy-configuration.md#file-watching-and-application).
 
-## Recovery and availability
-
-For production, use an odd number of voters, at least three. A majority must communicate to complete admission decisions, such as two of three or three of five. A single node is allowed but has no fault tolerance. A two-node cluster loses its majority when either node stops.
-
-When the leader fails, the remaining majority elects another leader and retains replicated balances. During elections or when commands cannot be recorded on a majority, admission fails with `503`. There is no automatic fallback to per-process `memory` buckets. `/readyz` reports only HTTP server startup and shutdown state and does not guarantee cluster majority availability.
-
-Relative `data_dir` paths are resolved from the main configuration file's directory. Use a separate directory for each node and retain the same address and directory across restarts. Containers need persistent volumes writable by their runtime UID. Restarts recover balances from snapshots and logs. Logs and snapshots use SHA-256 account identifier hashes and do not store raw authentication headers or tokens. Deleting every node's data makes existing usage unrecoverable.
-
-All nodes use timestamps recorded in commands by the leader. If the clock moves backward after leader replacement, buckets do not refill using a time earlier than their last recorded timestamp. Large forward clock jumps can refill accordingly, so synchronize node clocks.
-
-A command may already be recorded if a connection closes or a timeout occurs before the response arrives. Internal mutations are not automatically retried. Requests ending with `503` may still consume request units, and failed usage recording can leave some usage uncounted. Upstream responses already started continue unchanged, and usage recording failures emit warnings.
-
-Every admission decision and usage record waits for disk writes on the leader and a majority. Network latency and storage performance affect throughput. Idle account state can be cleaned up after enough time to refill all buckets completely; state with remaining token debt is retained.
-
 ## Admin port and internal communication
+
+Admin communication uses HTTP without TLS. Restrict access to a trusted management network allowing direct peer connections. Internal route token checks do not protect `/config`, which has no separate authentication. Restrict external port access and policy modification permissions at the network layer.
 
 No additional Raft port is needed. The admin listener registers these internal routes:
 
@@ -98,8 +100,6 @@ No additional Raft port is needed. The admin listener registers these internal r
 | `POST /internal/rate-limit/apply` | Followers forward admission decisions or usage records to the leader |
 
 Internal requests verify the shared token and a cluster identifier calculated from the peer list. A different peer list or invalid token is rejected. Internal routes are not exposed on API or Prometheus listeners. Proxy environment variables and HTTP redirects are not used.
-
-Admin communication uses HTTP without TLS. Restrict access to a trusted management network allowing direct peer connections. Internal route token checks do not protect `/config`, which has no separate authentication. Restrict external port access and policy modification permissions at the network layer.
 
 ## Implementation references
 

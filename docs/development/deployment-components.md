@@ -2,6 +2,8 @@
 
 `deploy/components/` provides Redis and an environment for collecting and querying OpenTelemetry data. Each subdirectory is an independent Kustomize configuration, and the parent `kustomization.yaml` combines all components. The deployment environment specifies the namespace.
 
+This is a single-instance development and test environment. All Services are `ClusterIP`, with no authentication or TLS configured. Grafana uses anonymous `Viewer` access and disables login and initial administrator creation. Observability data in `emptyDir` is deleted when Pods are replaced. Configured retention policies do not guarantee exact deletion times. Configure authentication, TLS, persistent storage, retention, and resource limits for your production environment.
+
 ## Components and data paths
 
 ```text
@@ -24,8 +26,6 @@ grafana:3000 -> prometheus:9090, loki:3100, tempo:3200
 | `grafana/` | `grafana/grafana:13.2.3` | `grafana:3000`, data query UI | `emptyDir` |
 
 All images are pinned by tag and digest. Each component's `service.yaml` and `deployment.yaml` or `statefulset.yaml` define ports, health checks, resource limits, and volumes. Configuration uses `config.yaml`, except Grafana uses `datasources.yaml` and Redis uses `redis.conf`. Kustomize-generated ConfigMap names depend on their contents, so applying configuration changes replaces Pods.
-
-This is a single-instance development and test environment. All Services are `ClusterIP`, with no authentication or TLS configured. Grafana uses anonymous `Viewer` access and disables login and initial administrator creation. Observability data in `emptyDir` is deleted when Pods are replaced. The table lists configured retention policies without guaranteeing exact deletion times. Configure authentication, TLS, persistent storage, retention, and resource limits for your production environment.
 
 ## Connecting the application
 

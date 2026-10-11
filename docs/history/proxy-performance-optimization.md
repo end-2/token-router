@@ -6,6 +6,8 @@ This document is a historical record of a proxy overhead review. Current behavio
 - Baseline commit: [`14b723d8531717dfcd9430780d3722e0bf6ef9ff`](https://github.com/end-2/token-router/commit/14b723d8531717dfcd9430780d3722e0bf6ef9ff)
 - Scope: request forwarding, routing, response usage observation, account identification, local rate limiting, and observability
 
+The review reduced avoidable allocations, parsing, locking, and observability work in the request path. The following sections describe those changes; they do not establish a production throughput or latency improvement. Performance comparisons must use equivalent inputs and build conditions.
+
 ## Response copying and flushing
 
 The baseline allocated a response copy buffer for each request. [`proxy.New`](../../src/internal/proxy/proxy.go) now supplies a shared `httputil.BufferPool` backed by `sync.Pool`. Each buffer has a fixed 32 KiB capacity, and pointer storage avoids allocating a slice header on return to the pool. Concurrent responses borrow separate buffers. Buffer retention is managed by the Go runtime and is not a permanent reservation.
@@ -53,5 +55,3 @@ Upstream tracing copies the request and headers needed for context propagation w
 ## Validation scope
 
 The changes include benchmarks for the application request pipeline and individual proxy, rate limiter, account, and observability paths. Correctness checks cover forwarding, routing, full duplex reads, streaming and cancellation, usage extraction and bounds, policy updates, metrics, and trace propagation. The commands for unit tests, race detection, lint, and Docker-based E2E scenarios are maintained in [Proxy server development and execution](../development/proxy-server.md#validation).
-
-Performance comparisons must use equivalent inputs and build conditions.

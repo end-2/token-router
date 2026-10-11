@@ -1,5 +1,7 @@
 # Proxy server development and execution
 
+Use the Docker-based Make targets to build, run, and validate the proxy. Host Go tools are required only for `make run` and local build or validation commands. Configure an upstream before sending API requests, and select Redis or distributed memory when multiple processes need shared limits.
+
 ## Required tools
 
 - A running Docker Engine or Docker Desktop with Docker BuildKit
@@ -108,7 +110,15 @@ make fmt
 
 ## Running the Redis backend
 
-Use the port-forwarding procedure in [Deployment components and Redis](deployment-components.md) to reach kind's Redis at host address `127.0.0.1:16379`. Keep the port forward running and execute:
+After `make kind-up`, forward Redis from the default kind test cluster to host address `127.0.0.1:16379`:
+
+```sh
+kubectl --kubeconfig tests/kind/.kube/token-router-test.yaml \
+  --context kind-token-router-test -n token-router-test \
+  port-forward --address 127.0.0.1 service/redis 16379:6379
+```
+
+For a custom cluster name, use its kubeconfig and context as described in [kind kubeconfig and configuration changes](kind-test-environment.md#kubeconfig-and-configuration-changes). See [Redis storage](deployment-components.md#redis-storage) for component settings. Keep the port forward running and execute:
 
 ```sh
 go run ./src/cmd/token-router serve \

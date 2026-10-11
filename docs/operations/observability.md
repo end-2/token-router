@@ -20,6 +20,8 @@ flowchart LR
 
 ## Application configuration
 
+Disable individual signals with `telemetry.traces.enabled`, `telemetry.metrics.enabled`, and `telemetry.logs.enabled`. Disabling metrics also prevents the Prometheus listener from being created; disabling logs also stops local application logging. With `telemetry.otlp.enabled=false`, no OTLP exporters are created, while local `telemetry.logs.level` and `telemetry.logs.format` settings and `telemetry.metrics.prometheus` settings still apply. See [Application configuration](../reference/configuration.md) for detailed defaults and CLI mappings.
+
 Connect through these environment variables in the same Kubernetes namespace as the Collector:
 
 ```yaml
@@ -43,8 +45,6 @@ TOKEN_ROUTER_TELEMETRY_OTLP_ENABLED=true \
 TOKEN_ROUTER_TELEMETRY_OTLP_ENDPOINT=http://127.0.0.1:14318 \
   go run ./src/cmd/token-router serve
 ```
-
-Disable individual signals with `telemetry.traces.enabled`, `telemetry.metrics.enabled`, and `telemetry.logs.enabled`. Disabling metrics also prevents the Prometheus listener from being created; disabling logs also stops local application logging. With `telemetry.otlp.enabled=false`, no OTLP exporters are created, while local `telemetry.logs.level` and `telemetry.logs.format` settings and `telemetry.metrics.prometheus` settings still apply. See [Application configuration](../reference/configuration.md) for detailed defaults and CLI mappings.
 
 ## Log and trace correlation
 

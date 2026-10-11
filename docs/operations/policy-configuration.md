@@ -4,6 +4,12 @@ All `upstream` settings and rate limit values and account settings are managed i
 
 ## Configuration separation
 
+Main configuration applies defaults, main YAML, environment variables, and explicit CLI arguments in that order. The policy file is applied last, so explicitly specified file values override environment variables and CLI arguments. Omitted values use the startup configuration before policy application. File replacements are merged against that same startup configuration, so removing a field restores its startup value. Arrays are replaced in full, and `null` is not allowed.
+
+A custom configuration omitting `policy.file`, or `--policy-file=`, uses startup configuration without file watching. The repository's `policy.yaml` includes `upstream.api_key: ""`, so it forwards the client's `Authorization` by default. To use `TOKEN_ROUTER_UPSTREAM_API_KEY`, omit the `api_key` field from the policy file.
+
+`upstream` supports destinations, Host and model routing, API keys, organization and project headers, timeouts, and connection pool settings. `rate_limit` supports `requests_per_second`, `burst`, `tokens_per_second`, `token_burst`, `account.enabled`, and `account.jwt_claim`. See [Per-account limits](../reference/configuration.md#per-account-limits) for identifier rules. `rate_limit.enabled`, `rate_limit.backend`, `rate_limit.memory`, `rate_limit.redis`, and other top-level settings are fixed in the main configuration. These fields are rejected in policy files and admin requests.
+
 The main `config.yaml` contains listeners, file paths, backend selection, and observability settings.
 
 ```yaml
@@ -38,8 +44,6 @@ rate_limit:
     jwt_claim: sub
 ```
 
-`upstream` supports destinations, Host and model routing, API keys, organization and project headers, timeouts, and connection pool settings. `rate_limit` supports `requests_per_second`, `burst`, `tokens_per_second`, `token_burst`, `account.enabled`, and `account.jwt_claim`. See [Per-account limits](../reference/configuration.md#per-account-limits) for identifier rules. `rate_limit.enabled`, `rate_limit.backend`, `rate_limit.memory`, `rate_limit.redis`, and other top-level settings are fixed in the main configuration. These fields are rejected in policy files and admin requests.
-
 Relative `policy.file` paths are resolved from the main configuration file's directory. The path and watch interval are fixed at startup. `policy.watch_interval` must be positive and defaults to `1s`. These CLI arguments and environment variables are also available:
 
 | YAML key | Environment variable | CLI |
@@ -52,10 +56,6 @@ Relative `policy.file` paths are resolved from the main configuration file's dir
 ```sh
 go run ./src/cmd/token-router serve --config config.yaml --admin-enabled
 ```
-
-Main configuration applies defaults, main YAML, environment variables, and explicit CLI arguments in that order. The policy file is applied last, so explicitly specified file values override environment variables and CLI arguments. Omitted values use the startup configuration before policy application. File replacements are merged against that same startup configuration, so removing a field restores its startup value. Arrays are replaced in full, and `null` is not allowed.
-
-A custom configuration omitting `policy.file`, or `--policy-file=`, uses startup configuration without file watching. The repository's `policy.yaml` includes `upstream.api_key: ""`, so it forwards the client's `Authorization` by default. To use `TOKEN_ROUTER_UPSTREAM_API_KEY`, omit the `api_key` field from the policy file.
 
 ## File watching and application
 
@@ -71,7 +71,11 @@ Set both `tokens_per_second` and `token_burst` to `0` to disable token usage lim
 
 ## Admin API
 
+The `/config` API provides no authentication and includes `upstream.api_key` in responses. Use the default loopback address or an access-restricted management network. For connections from outside a container, explicitly set `--admin-address=:9091` and expose only the required host port.
+
 `admin.enabled=true` opens a separate HTTP listener. Its default address is `127.0.0.1:9091` and must differ from the API and Prometheus addresses. An admin bind failure closes other listeners and fails startup. Shutdown follows the same graceful procedure as the other HTTP listeners.
+
+API persistence requires a regular file and directory write permission. Symlink files support watching only; API persistence rejects them. Read-only mounts and locations that do not allow rename, such as single-file bind mounts, also fail persistence. For container API persistence, mount a writable directory and grant its write permission to the runtime UID. If `policy.file` is empty, API changes remain only in the process's memory.
 
 | Method and path | Behavior |
 | --- | --- |
@@ -99,9 +103,5 @@ curl --fail -X PUT http://127.0.0.1:9091/config \
 Success returns `200` and the applied configuration. Invalid configuration and fixed-field changes return `400`, oversized bodies return `413`, file persistence failures return `500`, and updates during shutdown return `503`. Error bodies do not include configuration input values. `/config` is not registered on the public API or Prometheus listener, and admin requests do not consume proxy rate limits.
 
 When `policy.file` is configured, the API serializes the complete effective configuration to YAML, renames a temporary file in the same directory, then applies the configuration in memory. Persistence failure also preserves the in-memory configuration. The saved file is used after restart; existing YAML comments and formatting are not preserved. Effective values, including API keys inherited from startup configuration, are also saved. Created files have permissions `0600`.
-
-API persistence requires a regular file and directory write permission. Symlink files support watching only; API persistence rejects them. Read-only mounts and locations that do not allow rename, such as single-file bind mounts, also fail persistence. For container API persistence, mount a writable directory and grant its write permission to the runtime UID. If `policy.file` is empty, API changes remain only in the process's memory.
-
-The `/config` API provides no authentication and includes `upstream.api_key` in responses. Use the default loopback address or an access-restricted management network. For connections from outside a container, explicitly set `--admin-address=:9091` and expose only the required host port.
 
 Enabling distributed memory registers `/internal/rate-limit/` routes on the same admin port. Internal routes authenticate with a shared token, which does not affect access to `/config`. Retain management network access restrictions when exposing the admin listener for peer communication.

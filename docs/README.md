@@ -1,5 +1,7 @@
 # Documentation index
 
+Start with [Proxy server development and execution](development/proxy-server.md) to build, run, and validate the application. Use [Application configuration](reference/configuration.md) for settings and precedence, and the operations guides for runtime policy changes, shared limits, and observability. Architecture and history provide implementation details and historical context.
+
 ## Architecture
 
 - [Proxy server architecture](architecture/proxy-server.md): package hierarchy and responsibilities, proxy processing, bucket backends, metrics, and shutdown order

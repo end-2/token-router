@@ -1,31 +1,6 @@
 # Proxy server architecture
 
-## Package boundaries
-
-The Go module is at the repository root, and application code lives under `src/`.
-
-| Path | Responsibility |
-| --- | --- |
-| [`src/cmd/token-router`](../../src/cmd/token-router/main.go) | Shutdown signals and exit codes |
-| [`src/internal/cli`](../../src/internal/cli/root.go) | Cobra commands and explicit argument collection |
-| [`src/internal/config`](../../src/internal/config/config.go) | Configuration layer merging, type conversion, and validation |
-| [`src/internal/app`](../../src/internal/app/app.go) | Dependency construction, Echo routing, and listener lifecycles |
-| [`src/internal/proxy`](../../src/internal/proxy/proxy.go) | Standard `httputil.ReverseProxy`, upstream connection pools, and HTTP error handling |
-| [`src/internal/proxy/routing`](../../src/internal/proxy/routing/routing.go) | Host and model selection, request body inspection, and round-robin upstream pools |
-| [`src/internal/proxy/usage`](../../src/internal/proxy/usage/usage.go) | Bounded OpenAI JSON and SSE usage observation |
-| [`src/internal/bucket`](../../src/internal/bucket/bucket.go) | Limiter interfaces, decisions, errors, hashed account contexts, and retry durations |
-| [`src/internal/bucket/backend`](../../src/internal/bucket/backend/backend.go) | Configuration validation, backend selection, and the disabled limiter |
-| [`src/internal/bucket/memory`](../../src/internal/bucket/memory/memory.go) | Local sharded request and token balances |
-| [`src/internal/bucket/redis`](../../src/internal/bucket/redis/redis.go) | Shared balances maintained by atomic Redis scripts |
-| [`src/internal/bucket/distributed`](../../src/internal/bucket/distributed/distributed.go) | Raft lifecycle, replicated state, snapshots, and admin-port transport |
-| [`src/internal/bucket/limittest`](../../src/internal/bucket/limittest/conformance.go) | Shared usage and live-update conformance checks used only by backend tests |
-| [`src/internal/observability`](../../src/internal/observability/labels.go) | Bounded HTTP method labels and rate limiter outcome labels |
-| [`src/internal/observability/prometheus`](../../src/internal/observability/prometheus/metrics.go) | Per-instance Prometheus registries and HTTP middleware |
-| [`src/internal/observability/telemetry`](../../src/internal/observability/telemetry/telemetry.go) | OpenTelemetry providers, HTTP instrumentation, exporters, and application logs |
-
-`main` converts process signals into a context and runs the CLI. The CLI loads configuration and calls `app.Run`. `app` assembles the implementations; request processing code does not read configuration files or environment variables directly.
-
-The `bucket` package does not import its implementations. `app` calls `backend.New`, and each backend implements the contracts in `bucket`. This keeps backend selection separate from shared types without circular imports. `proxy` composes `routing` and `usage`, while the two observability implementations share labels from their parent package. `app` retains listener and policy lifecycle coordination, and `config` retains configuration types, loading, and validation in one package.
+The application admits requests through a configurable rate limiter, selects an upstream by Host and model, and forwards OpenAI API responses, including SSE streams. Local memory, Redis, and Raft-backed distributed memory provide different balance-sharing semantics. Policy changes apply to new requests while active streams continue using their selected proxy.
 
 ## HTTP proxy
 
@@ -107,3 +82,30 @@ Logs and spans exclude request bodies, authentication headers, queries, and raw 
 6. Shut down telemetry providers with a context separate from the shutdown signal to export pending data. Apply `telemetry.shutdown_timeout` to this step.
 
 Shutdown signal contexts and HTTP request contexts are separate, so receiving a signal does not immediately cancel active streams. A normal drain returns a successful exit code; startup errors or an exceeded shutdown deadline return a failure exit code.
+
+## Package boundaries
+
+The Go module is at the repository root, and application code lives under `src/`.
+
+| Path | Responsibility |
+| --- | --- |
+| [`src/cmd/token-router`](../../src/cmd/token-router/main.go) | Shutdown signals and exit codes |
+| [`src/internal/cli`](../../src/internal/cli/root.go) | Cobra commands and explicit argument collection |
+| [`src/internal/config`](../../src/internal/config/config.go) | Configuration layer merging, type conversion, and validation |
+| [`src/internal/app`](../../src/internal/app/app.go) | Dependency construction, Echo routing, and listener lifecycles |
+| [`src/internal/proxy`](../../src/internal/proxy/proxy.go) | Standard `httputil.ReverseProxy`, upstream connection pools, and HTTP error handling |
+| [`src/internal/proxy/routing`](../../src/internal/proxy/routing/routing.go) | Host and model selection, request body inspection, and round-robin upstream pools |
+| [`src/internal/proxy/usage`](../../src/internal/proxy/usage/usage.go) | Bounded OpenAI JSON and SSE usage observation |
+| [`src/internal/bucket`](../../src/internal/bucket/bucket.go) | Limiter interfaces, decisions, errors, hashed account contexts, and retry durations |
+| [`src/internal/bucket/backend`](../../src/internal/bucket/backend/backend.go) | Configuration validation, backend selection, and the disabled limiter |
+| [`src/internal/bucket/memory`](../../src/internal/bucket/memory/memory.go) | Local sharded request and token balances |
+| [`src/internal/bucket/redis`](../../src/internal/bucket/redis/redis.go) | Shared balances maintained by atomic Redis scripts |
+| [`src/internal/bucket/distributed`](../../src/internal/bucket/distributed/distributed.go) | Raft lifecycle, replicated state, snapshots, and admin-port transport |
+| [`src/internal/bucket/limittest`](../../src/internal/bucket/limittest/conformance.go) | Shared usage and live-update conformance checks used only by backend tests |
+| [`src/internal/observability`](../../src/internal/observability/labels.go) | Bounded HTTP method labels and rate limiter outcome labels |
+| [`src/internal/observability/prometheus`](../../src/internal/observability/prometheus/metrics.go) | Per-instance Prometheus registries and HTTP middleware |
+| [`src/internal/observability/telemetry`](../../src/internal/observability/telemetry/telemetry.go) | OpenTelemetry providers, HTTP instrumentation, exporters, and application logs |
+
+`main` converts process signals into a context and runs the CLI. The CLI loads configuration and calls `app.Run`. `app` assembles the implementations; request processing code does not read configuration files or environment variables directly.
+
+The `bucket` package does not import its implementations. `app` calls `backend.New`, and each backend implements the contracts in `bucket`. This keeps backend selection separate from shared types without circular imports. `proxy` composes `routing` and `usage`, while the two observability implementations share labels from their parent package. `app` retains listener and policy lifecycle coordination, and `config` retains configuration types, loading, and validation in one package.

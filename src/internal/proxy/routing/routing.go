@@ -47,7 +47,6 @@ type upstreamRoute struct {
 // Router selects destinations from immutable rules and concurrent round-robin pools.
 type Router struct {
 	routes       []upstreamRoute
-	fallback     *upstreamPool
 	maxBodyBytes int64
 }
 
@@ -57,17 +56,10 @@ func New(cfg config.Upstream) (*Router, error) {
 		return nil, err
 	}
 	routing := &Router{maxBodyBytes: int64(cfg.MaxRoutingBodyBytes)}
-	var err error
-	if len(cfg.BaseURLs) > 0 {
-		routing.fallback, err = newUpstreamPool(cfg.BaseURLs)
-		if err != nil {
-			return nil, err
-		}
-	}
 	pools := make(map[routeCondition]*upstreamPool)
 	for _, rule := range cfg.Routes {
-		host, port := splitRouteHost(rule.Host)
-		condition := routeCondition{host: host, port: port, model: rule.Model}
+		host, port := splitRouteHost(normalizeCondition(rule.Host))
+		condition := routeCondition{host: host, port: port, model: normalizeCondition(rule.Model)}
 		pool, err := newUpstreamPool(rule.BaseURLs)
 		if err != nil {
 			return nil, err
@@ -81,12 +73,19 @@ func New(cfg config.Upstream) (*Router, error) {
 		if host != "" {
 			specificity++
 		}
-		if rule.Model != "" {
+		if condition.model != "" {
 			specificity++
 		}
 		routing.routes = append(routing.routes, upstreamRoute{condition, pool, specificity})
 	}
 	return routing, nil
+}
+
+func normalizeCondition(value string) string {
+	if value == "*" {
+		return ""
+	}
+	return value
 }
 
 func newUpstreamPool(addresses []string) (*upstreamPool, error) {
@@ -120,8 +119,8 @@ type Error struct {
 
 // SelectTarget selects an upstream and preserves inspected request bytes for forwarding.
 func (routing *Router) SelectTarget(writer http.ResponseWriter, request *http.Request) (*url.URL, *Error) {
-	if len(routing.routes) == 0 && routing.fallback != nil {
-		return routing.fallback.selectTarget(), nil
+	if len(routing.routes) == 1 && routing.routes[0].specificity == 0 {
+		return routing.routes[0].pool.selectTarget(), nil
 	}
 	host, port := splitRouteHost(request.Host)
 	needsModel := false
@@ -139,7 +138,8 @@ func (routing *Router) SelectTarget(writer http.ResponseWriter, request *http.Re
 			return nil, err
 		}
 	}
-	selected, specificity := routing.fallback, -1
+	var selected *upstreamPool
+	specificity := -1
 	for _, route := range routing.routes {
 		if route.specificity > specificity && route.matchesHost(host, port) && (route.model == "" || route.model == model) {
 			selected, specificity = route.pool, route.specificity

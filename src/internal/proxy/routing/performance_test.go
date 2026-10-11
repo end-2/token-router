@@ -15,13 +15,12 @@ func BenchmarkRouting(b *testing.B) {
 		name, payload string
 		routes        []config.UpstreamRoute
 	}{
-		{name: "Default"},
+		{name: "Default", routes: []config.UpstreamRoute{{Host: "*", Model: "*", BaseURLs: []string{"http://upstream.example"}}}},
 		{name: "Host", routes: []config.UpstreamRoute{{Host: "api.example.com", BaseURLs: []string{"http://upstream.example"}}}},
 		{name: "Model64KiB", payload: `{"model":"chat","input":"` + strings.Repeat("x", 64<<10) + `"}`, routes: []config.UpstreamRoute{{Model: "chat", BaseURLs: []string{"http://upstream.example"}}}},
 	} {
 		b.Run(test.name, func(b *testing.B) {
 			cfg := config.Defaults().Upstream
-			cfg.BaseURLs = []string{"http://upstream.example"}
 			cfg.Routes = test.routes
 			routing, err := New(cfg)
 			if err != nil {

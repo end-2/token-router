@@ -38,8 +38,9 @@ func TestRoutingSelectorsAndPriority(t *testing.T) {
 	ipv6 := routingUpstream(t, "ipv6")
 	cfg := upstreamConfig(fallback)
 	cfg.Routes = []config.UpstreamRoute{
-		{Host: "api.example.com", BaseURLs: []string{host}},
-		{Model: "chat", BaseURLs: []string{model}},
+		{Host: "*", Model: "*", BaseURLs: []string{fallback}},
+		{Host: "api.example.com", Model: "*", BaseURLs: []string{host}},
+		{Host: "*", Model: "chat", BaseURLs: []string{model}},
 		{Host: "api.example.com", Model: "chat", BaseURLs: []string{both}},
 		{Host: "port.example.com:8443", BaseURLs: []string{port}},
 		{Host: "[::1]", BaseURLs: []string{ipv6}},
@@ -120,21 +121,24 @@ func TestRoutingRoundRobinAndDuplicateConditions(t *testing.T) {
 	}
 }
 
-func TestDefaultPoolAndCatchAll(t *testing.T) {
+func TestWildcardRoutesAndMergedDefaults(t *testing.T) {
 	first := routingUpstream(t, "first")
 	second := routingUpstream(t, "second")
-	catchAll := routingUpstream(t, "catch-all")
 	for _, test := range []struct {
 		name   string
 		routes []config.UpstreamRoute
 		want   []string
 	}{
-		{name: "default pool", want: []string{"first", "second", "first"}},
-		{name: "catch-all rule overrides default pool", routes: []config.UpstreamRoute{{BaseURLs: []string{catchAll}}}, want: []string{"catch-all", "catch-all", "catch-all"}},
+		{name: "wildcard pool", routes: []config.UpstreamRoute{{Host: "*", Model: "*", BaseURLs: []string{first, second}}}, want: []string{"first", "second", "first"}},
+		{name: "wildcard and omitted conditions merge", routes: []config.UpstreamRoute{
+			{Host: "*", Model: "*", BaseURLs: []string{first}}, {BaseURLs: []string{second}},
+		}, want: []string{"first", "second", "first"}},
+		{name: "mixed empty and wildcard conditions merge", routes: []config.UpstreamRoute{
+			{Host: "*", BaseURLs: []string{first}}, {Model: "*", BaseURLs: []string{second}},
+		}, want: []string{"first", "second", "first"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			cfg := upstreamConfig("http://127.0.0.1:1")
-			cfg.BaseURLs = []string{first, second}
 			cfg.Routes = test.routes
 			handler := newTestHandler(t, cfg)
 			for _, want := range test.want {
@@ -177,7 +181,7 @@ func TestRoutingBodyValidation(t *testing.T) {
 			cfg.MaxRoutingBodyBytes = 64
 			model := "chat"
 			if test.hostOnly {
-				model = ""
+				model = "*"
 			}
 			cfg.Routes = []config.UpstreamRoute{{Host: "api.example.com", Model: model, BaseURLs: []string{target}}}
 			handler := newTestHandler(t, cfg)
@@ -201,6 +205,37 @@ func TestRoutingBodyValidation(t *testing.T) {
 				}
 			} else if response.Header().Get("X-Upstream") != "" || !strings.Contains(response.Body.String(), test.code) || strings.Contains(response.Body.String(), "secret-value") {
 				t.Fatalf("unexpected routing error: %s", response.Body.String())
+			}
+		})
+	}
+}
+
+func TestWildcardModelDoesNotInspectBody(t *testing.T) {
+	target := routingUpstream(t, "selected")
+	for _, test := range []struct {
+		name   string
+		routes []config.UpstreamRoute
+	}{
+		{name: "default only", routes: []config.UpstreamRoute{{Host: "*", Model: "*", BaseURLs: []string{target}}}},
+		{name: "default with unrelated model route", routes: []config.UpstreamRoute{
+			{Host: "*", Model: "*", BaseURLs: []string{target}},
+			{Host: "other.example.com", Model: "chat", BaseURLs: []string{target}},
+		}},
+		{name: "host with wildcard model", routes: []config.UpstreamRoute{{Host: "api.example.com", Model: "*", BaseURLs: []string{target}}}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := upstreamConfig(target)
+			cfg.Routes = test.routes
+			cfg.MaxRoutingBodyBytes = 1
+			handler := newTestHandler(t, cfg)
+			const body = "opaque compressed body"
+			request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "http://api.example.com/v1/responses", strings.NewReader(body))
+			request.Header.Set("Content-Type", "application/json")
+			request.Header.Set("Content-Encoding", "gzip")
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+			if response.Code != http.StatusOK || response.Body.String() != body {
+				t.Fatalf("wildcard route inspected or changed the body: status=%d body=%q", response.Code, response.Body.String())
 			}
 		})
 	}

@@ -334,7 +334,7 @@ func upstreamConfig(baseURL string) config.Upstream {
 		baseURLs = append(baseURLs, baseURL)
 	}
 	cfg := config.Defaults().Upstream
-	cfg.BaseURLs = baseURLs
+	cfg.Routes = []config.UpstreamRoute{{Host: "*", Model: "*", BaseURLs: baseURLs}}
 	return cfg
 }
 

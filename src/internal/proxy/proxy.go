@@ -1,4 +1,4 @@
-// Package proxy forwards HTTP requests and streaming responses to one configured upstream.
+// Package proxy routes HTTP requests and streaming responses to configured upstream pools.
 package proxy
 
 import (
@@ -17,12 +17,13 @@ import (
 	"token-router/src/internal/config"
 )
 
-// Handler owns the upstream connection pool and forwards requests to its fixed destination.
+// Handler owns the upstream connection pool and selects configured routing destinations.
 type Handler struct {
 	proxy          *httputil.ReverseProxy
 	transport      *http.Transport
 	logger         *slog.Logger
 	requestTimeout time.Duration
+	router         *router
 }
 
 // Option customizes proxy construction without changing connection pool ownership.
@@ -37,10 +38,9 @@ func WithTransport(wrap func(http.RoundTripper) http.RoundTripper) Option {
 
 // New constructs a handler without opening upstream connections.
 func New(cfg config.Upstream, logger *slog.Logger, options ...Option) (*Handler, error) {
-	target, err := url.Parse(cfg.BaseURL)
-	if err != nil || target.Hostname() == "" || (target.Scheme != "http" && target.Scheme != "https") ||
-		target.User != nil || target.RawQuery != "" || target.ForceQuery || target.Fragment != "" || target.Opaque != "" {
-		return nil, errors.New("upstream base URL must be an HTTP or HTTPS URL without credentials, query, or fragment")
+	routing, err := newRouter(cfg)
+	if err != nil {
+		return nil, err
 	}
 	if logger == nil {
 		logger = slog.Default()
@@ -56,12 +56,13 @@ func New(cfg config.Upstream, logger *slog.Logger, options ...Option) (*Handler,
 	transport.MaxIdleConnsPerHost = cfg.MaxIdleConnsPerHost
 	transport.DisableCompression = true
 
-	handler := &Handler{transport: transport, logger: logger, requestTimeout: cfg.RequestTimeout}
+	handler := &Handler{transport: transport, logger: logger, requestTimeout: cfg.RequestTimeout, router: routing}
 	handler.proxy = &httputil.ReverseProxy{
 		Transport:     transport,
 		FlushInterval: -1,
 		ErrorLog:      log.New(safeErrorWriter{logger: logger}, "", 0),
 		Rewrite: func(request *httputil.ProxyRequest) {
+			target := request.In.Context().Value(upstreamTargetKey{}).(*url.URL)
 			request.SetURL(target)
 			request.Out.URL.User = nil
 			request.Out.URL.Opaque = ""
@@ -113,8 +114,20 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		defer cancel()
 		request = request.WithContext(ctx)
 	}
+	target, routeErr := handler.router.selectTarget(writer, request)
+	if routeErr != nil {
+		if err := request.Context().Err(); err != nil {
+			handler.handleError(writer, request, err)
+			return
+		}
+		handler.writeError(writer, routeErr.status, routeErr.code, routeErr.message)
+		return
+	}
+	request = request.WithContext(context.WithValue(request.Context(), upstreamTargetKey{}, target))
 	handler.proxy.ServeHTTP(writer, request)
 }
+
+type upstreamTargetKey struct{}
 
 // CloseIdleConnections releases pooled connections after active requests finish.
 func (handler *Handler) CloseIdleConnections() {

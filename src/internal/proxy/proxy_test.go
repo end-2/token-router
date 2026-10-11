@@ -324,8 +324,13 @@ func TestInvalidUpstreamURL(t *testing.T) {
 }
 
 func upstreamConfig(baseURL string) config.Upstream {
+	baseURLs := []string{}
+	if baseURL != "" {
+		baseURLs = append(baseURLs, baseURL)
+	}
 	return config.Upstream{
-		BaseURL:               baseURL,
+		BaseURLs:              baseURLs,
+		MaxRoutingBodyBytes:   8 << 20,
 		DialTimeout:           time.Second,
 		ResponseHeaderTimeout: time.Second,
 		IdleConnTimeout:       time.Second,

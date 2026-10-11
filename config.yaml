@@ -24,6 +24,8 @@ rate_limit:
   backend: memory
   requests_per_second: 10
   burst: 20
+  tokens_per_second: 0
+  token_burst: 0
   redis:
     address: "127.0.0.1:6379"
     username: ""

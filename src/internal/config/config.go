@@ -46,12 +46,14 @@ type Upstream struct {
 	MaxIdleConnsPerHost   int           `yaml:"max_idle_conns_per_host"`
 }
 
-// RateLimit selects and configures the global request token bucket.
+// RateLimit configures global request and upstream token usage limits.
 type RateLimit struct {
 	Enabled           bool    `yaml:"enabled"`
 	Backend           string  `yaml:"backend"`
 	RequestsPerSecond float64 `yaml:"requests_per_second"`
 	Burst             int     `yaml:"burst"`
+	TokensPerSecond   float64 `yaml:"tokens_per_second"`
+	TokenBurst        int     `yaml:"token_burst"`
 	Redis             Redis   `yaml:"redis"`
 }
 
@@ -194,6 +196,18 @@ func (c Config) Validate() error {
 	}
 	if c.RateLimit.Enabled && float64(c.RateLimit.Burst)/c.RateLimit.RequestsPerSecond >= float64(math.MaxInt64)/float64(time.Second) {
 		return fmt.Errorf("rate_limit bucket refill time exceeds the supported duration")
+	}
+	if math.IsNaN(c.RateLimit.TokensPerSecond) || math.IsInf(c.RateLimit.TokensPerSecond, 0) || c.RateLimit.TokensPerSecond < 0 {
+		return fmt.Errorf("rate_limit.tokens_per_second must be finite and nonnegative")
+	}
+	if c.RateLimit.TokenBurst < 0 {
+		return fmt.Errorf("rate_limit.token_burst must not be negative")
+	}
+	if (c.RateLimit.TokensPerSecond == 0) != (c.RateLimit.TokenBurst == 0) {
+		return fmt.Errorf("rate_limit.tokens_per_second and rate_limit.token_burst must both be positive or both be zero")
+	}
+	if c.RateLimit.Enabled && c.RateLimit.TokensPerSecond > 0 && float64(c.RateLimit.TokenBurst)/c.RateLimit.TokensPerSecond >= float64(math.MaxInt64)/float64(time.Second) {
+		return fmt.Errorf("rate_limit token usage bucket refill time exceeds the supported duration")
 	}
 	if c.RateLimit.Redis.DB < 0 {
 		return fmt.Errorf("rate_limit.redis.db must not be negative")

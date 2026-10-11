@@ -100,7 +100,7 @@ func (a *application) newProxyFor(cfg config.PolicyConfig) (*proxy.Handler, erro
 
 func (a *application) recordUsage(ctx context.Context, tokens int64) {
 	// Confirmed upstream usage still counts after a client disconnect or timeout.
-	// The Redis backend bounds this detached operation with its command timeout.
+	// Shared backends bound this detached operation with their command timeout.
 	if err := a.limiter.RecordUsage(context.WithoutCancel(ctx), tokens); err != nil {
 		a.logger.WarnContext(ctx, "token usage could not be recorded")
 	}
@@ -137,6 +137,14 @@ func (a *application) forward(c *echo.Context) error {
 	// Admission and proxy selection observe the same update. Streams release this
 	// lock before forwarding so that an open response cannot block configuration.
 	a.policyMu.RLock()
+	if a.cfg.RateLimit.Enabled && a.current.RateLimit.Account.Enabled {
+		identifier, ok := accountIdentifier(c.Request(), a.current.RateLimit.Account)
+		if !ok {
+			a.policyMu.RUnlock()
+			return apiError(c, http.StatusUnauthorized, "rate_limit_account_required", "A valid account identifier is required")
+		}
+		c.SetRequest(c.Request().WithContext(bucket.WithAccount(c.Request().Context(), identifier)))
+	}
 	p := a.proxy
 	p.active.Add(1)
 	decision, err := a.limiter.Allow(c.Request().Context())

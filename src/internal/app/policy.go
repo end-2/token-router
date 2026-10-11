@@ -15,6 +15,7 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
+	"token-router/src/internal/bucket"
 	"token-router/src/internal/config"
 	"token-router/src/internal/proxy"
 )
@@ -190,6 +191,9 @@ func (a *application) watchPolicy(ctx context.Context) {
 
 func (a *application) adminHandler() http.Handler {
 	mux := http.NewServeMux()
+	if backend, ok := a.limiter.(bucket.AdminBackend); ok {
+		backend.RegisterAdmin(mux)
+	}
 	mux.HandleFunc("GET /config", func(w http.ResponseWriter, _ *http.Request) {
 		a.writeAdminJSON(w, http.StatusOK, a.snapshot())
 	})

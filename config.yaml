@@ -15,6 +15,22 @@ policy:
   file: policy.yaml
   watch_interval: 1s
 
+transport:
+  dial_timeout: 10s
+  tcp_keep_alive: 30s
+  tls_handshake_timeout: 10s
+  response_header_timeout: 60s
+  expect_continue_timeout: 1s
+  idle_conn_timeout: 90s
+  max_idle_conns: 100
+  max_idle_conns_per_host: 100
+  max_conns_per_host: 0
+  read_buffer_size: 0
+  write_buffer_size: 0
+  max_response_header_bytes: 0
+  disable_keep_alives: false
+  force_attempt_http2: true
+
 rate_limit:
   enabled: true
   backend: memory

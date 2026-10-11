@@ -43,7 +43,8 @@ func TestPolicyDecodeRejectsStaticAndInvalidSettings(t *testing.T) {
 		"rate_limit: {strategy: memory}", "rate_limit: {redis: {address: 'localhost:6379'}}",
 		"server: {address: ':9099'}", "admin: {enabled: true}", "policy: {file: other.yaml}",
 		"upstream: {api_key: secret, typo: secret}", "upstream: {base_urls: []}",
-		"upstream: {dial_timeout: -1s}", "rate_limit: {burst: 0}",
+		"upstream: {dial_timeout: 1s}", "upstream: {transport: {dial_timeout: 1s}}",
+		"transport: {dial_timeout: 1s}", "transport: {}", "rate_limit: {burst: 0}",
 		"rate_limit: {tokens_per_second: 2}", "rate_limit: {requests_per_second: .nan}",
 		"upstream: null", "upstream: {routes: [null]}", "{}\n---\n{}", "", "[]",
 		"rate_limit: {burst: 1, burst: 2}",
@@ -72,7 +73,7 @@ func TestPolicyJSONRoundTripAndIndependentSnapshots(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), `"dial_timeout":"10s"`) {
+	if !strings.Contains(string(data), `"request_timeout":"0s"`) {
 		t.Fatal("JSON duration must use config units")
 	}
 	next, err := DecodePolicy(data, Defaults().Mutable())

@@ -17,6 +17,7 @@ type Config struct {
 	Admin      Admin     `yaml:"admin"`
 	Policy     Policy    `yaml:"policy"`
 	Upstream   Upstream  `yaml:"upstream"`
+	Transport  Transport `yaml:"transport"`
 	RateLimit  RateLimit `yaml:"rate_limit"`
 	Telemetry  Telemetry `yaml:"telemetry"`
 	policyBase *PolicyConfig
@@ -45,20 +46,15 @@ type Server struct {
 	MaxHeaderBytes    int           `yaml:"max_header_bytes"`
 }
 
-// Upstream configures routing destinations and their shared HTTP connection pool.
+// Upstream configures routing, authentication, and the overall request timeout.
 type Upstream struct {
-	BaseURLs              []string        `yaml:"base_urls"`
-	Routes                []UpstreamRoute `yaml:"routes"`
-	MaxRoutingBodyBytes   int             `yaml:"max_routing_body_bytes"`
-	APIKey                string          `yaml:"api_key"`
-	Organization          string          `yaml:"organization"`
-	Project               string          `yaml:"project"`
-	DialTimeout           time.Duration   `yaml:"dial_timeout"`
-	ResponseHeaderTimeout time.Duration   `yaml:"response_header_timeout"`
-	IdleConnTimeout       time.Duration   `yaml:"idle_conn_timeout"`
-	RequestTimeout        time.Duration   `yaml:"request_timeout"`
-	MaxIdleConns          int             `yaml:"max_idle_conns"`
-	MaxIdleConnsPerHost   int             `yaml:"max_idle_conns_per_host"`
+	BaseURLs            []string        `yaml:"base_urls"`
+	Routes              []UpstreamRoute `yaml:"routes"`
+	MaxRoutingBodyBytes int             `yaml:"max_routing_body_bytes"`
+	APIKey              string          `yaml:"api_key"`
+	Organization        string          `yaml:"organization"`
+	Project             string          `yaml:"project"`
+	RequestTimeout      time.Duration   `yaml:"request_timeout"`
 }
 
 // RateLimit configures shared or per-account request and upstream token limits.
@@ -145,11 +141,10 @@ func Defaults() Config {
 			MaxHeaderBytes: 1 << 20,
 		},
 		Upstream: Upstream{
-			BaseURLs: []string{"https://api.openai.com"}, DialTimeout: 10 * time.Second,
-			Routes: []UpstreamRoute{}, MaxRoutingBodyBytes: 8 << 20,
-			ResponseHeaderTimeout: 60 * time.Second, IdleConnTimeout: 90 * time.Second,
-			MaxIdleConns: 100, MaxIdleConnsPerHost: 100,
+			BaseURLs: []string{"https://api.openai.com"},
+			Routes:   []UpstreamRoute{}, MaxRoutingBodyBytes: 8 << 20,
 		},
+		Transport: defaultTransport(),
 		RateLimit: RateLimit{
 			Enabled: true, Backend: "memory", RequestsPerSecond: 10, Burst: 20,
 			Account: Account{JWTClaim: "sub"},
@@ -213,8 +208,8 @@ func (c Config) Validate() error {
 			return fmt.Errorf("%s must not contain control characters", field.name)
 		}
 	}
-	if c.Upstream.MaxIdleConns <= 0 || c.Upstream.MaxIdleConnsPerHost <= 0 {
-		return fmt.Errorf("upstream connection pool sizes must be positive")
+	if err := c.Transport.Validate(); err != nil {
+		return err
 	}
 	if c.RateLimit.Backend != "memory" && c.RateLimit.Backend != "redis" {
 		return fmt.Errorf("rate_limit.backend must be memory or redis")

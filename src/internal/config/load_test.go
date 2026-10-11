@@ -162,7 +162,7 @@ func TestValidate(t *testing.T) {
 		{"upstream query", func(c *Config) { c.Upstream.BaseURLs = []string{"https://example.com?api_key=secret-value"} }},
 		{"upstream fragment", func(c *Config) { c.Upstream.BaseURLs = []string{"https://example.com#secret-value"} }},
 		{"header injection", func(c *Config) { c.Upstream.APIKey = "secret-value\r\n" }},
-		{"pool size", func(c *Config) { c.Upstream.MaxIdleConns = 0 }},
+		{"pool size", func(c *Config) { c.Transport.MaxIdleConns = -1 }},
 		{"backend", func(c *Config) { c.RateLimit.Backend = "secret-value" }},
 		{"zero rate", func(c *Config) { c.RateLimit.RequestsPerSecond = 0 }},
 		{"infinite rate", func(c *Config) { c.RateLimit.RequestsPerSecond = math.Inf(1) }},

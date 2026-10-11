@@ -41,7 +41,7 @@ type field struct {
 }
 
 func fields(c *Config) []field {
-	return []field{
+	return append([]field{
 		{"admin.enabled", "Enable the separate configuration API listener", &c.Admin.Enabled},
 		{"admin.address", "Admin API listen address", &c.Admin.Address},
 		{"policy.file", "Policy file relative to the main configuration file", &c.Policy.File},
@@ -59,12 +59,7 @@ func fields(c *Config) []field {
 		{"upstream.api_key", "Upstream API key; empty forwards incoming Authorization", &c.Upstream.APIKey},
 		{"upstream.organization", "Upstream OpenAI organization header", &c.Upstream.Organization},
 		{"upstream.project", "Upstream OpenAI project header", &c.Upstream.Project},
-		{"upstream.dial_timeout", "Upstream connection dial timeout", &c.Upstream.DialTimeout},
-		{"upstream.response_header_timeout", "Maximum wait for upstream response headers", &c.Upstream.ResponseHeaderTimeout},
-		{"upstream.idle_conn_timeout", "Upstream idle connection timeout", &c.Upstream.IdleConnTimeout},
 		{"upstream.request_timeout", "Total upstream request timeout; 0 supports long streams", &c.Upstream.RequestTimeout},
-		{"upstream.max_idle_conns", "Maximum pooled idle upstream connections", &c.Upstream.MaxIdleConns},
-		{"upstream.max_idle_conns_per_host", "Maximum idle upstream connections per host", &c.Upstream.MaxIdleConnsPerHost},
 		{"rate_limit.enabled", "Enable request and upstream token usage limits", &c.RateLimit.Enabled},
 		{"rate_limit.backend", "Token bucket backend: memory or redis", &c.RateLimit.Backend},
 		{"rate_limit.requests_per_second", "Request token refill rate per bucket", &c.RateLimit.RequestsPerSecond},
@@ -106,7 +101,7 @@ func fields(c *Config) []field {
 		{"telemetry.logs.enabled", "Enable local application logs and optional OTLP log export", &c.Telemetry.Logs.Enabled},
 		{"telemetry.logs.level", "Log level: debug, info, warn, or error", &c.Telemetry.Logs.Level},
 		{"telemetry.logs.format", "Local log format: json or text", &c.Telemetry.Logs.Format},
-	}
+	}, transportFields(&c.Transport)...)
 }
 
 func (f field) envName() string {
@@ -121,6 +116,8 @@ func (f field) string() string {
 		return strconv.FormatBool(*value)
 	case *int:
 		return strconv.Itoa(*value)
+	case *int64:
+		return strconv.FormatInt(*value, 10)
 	case *float64:
 		return strconv.FormatFloat(*value, 'g', -1, 64)
 	case *time.Duration:
@@ -145,6 +142,8 @@ func (f field) set(raw string) error {
 		*value, err = strconv.ParseBool(raw)
 	case *int:
 		*value, err = strconv.Atoi(raw)
+	case *int64:
+		*value, err = strconv.ParseInt(raw, 10, 64)
 	case *float64:
 		*value, err = strconv.ParseFloat(raw, 64)
 	case *time.Duration:

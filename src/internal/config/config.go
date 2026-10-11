@@ -61,7 +61,7 @@ type Upstream struct {
 	MaxIdleConnsPerHost   int             `yaml:"max_idle_conns_per_host"`
 }
 
-// RateLimit configures global request and upstream token usage limits.
+// RateLimit configures shared or per-account request and upstream token limits.
 type RateLimit struct {
 	Enabled           bool    `yaml:"enabled"`
 	Backend           string  `yaml:"backend"`
@@ -69,7 +69,9 @@ type RateLimit struct {
 	Burst             int     `yaml:"burst"`
 	TokensPerSecond   float64 `yaml:"tokens_per_second"`
 	TokenBurst        int     `yaml:"token_burst"`
+	Account           Account `yaml:"account"`
 	Redis             Redis   `yaml:"redis"`
+	Memory            Memory  `yaml:"memory"`
 }
 
 // Redis configures the shared rate limit storage.
@@ -150,6 +152,8 @@ func Defaults() Config {
 		},
 		RateLimit: RateLimit{
 			Enabled: true, Backend: "memory", RequestsPerSecond: 10, Burst: 20,
+			Account: Account{JWTClaim: "sub"},
+			Memory:  Memory{Distributed: Distributed{Peers: []string{}, DataDir: "data/rate-limit", RequestTimeout: 5 * time.Second}},
 			Redis: Redis{
 				Address: "127.0.0.1:6379", Key: "token-router:rate-limit:global",
 				DialTimeout: 5 * time.Second, ReadTimeout: 3 * time.Second, WriteTimeout: 3 * time.Second,
@@ -214,6 +218,19 @@ func (c Config) Validate() error {
 	}
 	if c.RateLimit.Backend != "memory" && c.RateLimit.Backend != "redis" {
 		return fmt.Errorf("rate_limit.backend must be memory or redis")
+	}
+	if c.RateLimit.Account.Enabled && (strings.TrimSpace(c.RateLimit.Account.JWTClaim) == "" || len(c.RateLimit.Account.JWTClaim) > 1024) {
+		return fmt.Errorf("rate_limit.account.jwt_claim must contain 1 to 1024 bytes when account limits are enabled")
+	}
+	if c.RateLimit.Enabled && c.RateLimit.Backend == "memory" && c.RateLimit.Memory.Distributed.Enabled {
+		if err := c.RateLimit.Memory.Distributed.Validate(); err != nil {
+			return err
+		}
+		_, adminPort, err := net.SplitHostPort(c.Admin.Address)
+		_, peerPort, _ := net.SplitHostPort(c.RateLimit.Memory.Distributed.Address)
+		if !c.Admin.Enabled || err != nil || adminPort != peerPort {
+			return fmt.Errorf("distributed rate limiting requires admin.enabled and an admin.address port matching rate_limit.memory.distributed.address")
+		}
 	}
 	if math.IsNaN(c.RateLimit.RequestsPerSecond) || math.IsInf(c.RateLimit.RequestsPerSecond, 0) || c.RateLimit.RequestsPerSecond < 0 || (c.RateLimit.Enabled && c.RateLimit.RequestsPerSecond == 0) {
 		return fmt.Errorf("rate_limit.requests_per_second must be finite and positive when enabled")

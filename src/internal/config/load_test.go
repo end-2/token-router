@@ -241,7 +241,9 @@ func TestEveryLeafHasEnvironmentAndFlagBindings(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !reflect.DeepEqual(cfg, Defaults()) {
+		want := Defaults()
+		want.RateLimit.Memory.Distributed.DataDir = filepath.Join(filepath.Dir(options.Path), want.RateLimit.Memory.Distributed.DataDir)
+		if !reflect.DeepEqual(cfg, want) {
 			t.Error("default flag or environment values do not round-trip")
 		}
 	}
@@ -253,6 +255,7 @@ func TestExampleConfigurationMatchesDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := Defaults()
+	want.RateLimit.Memory.Distributed.DataDir = "../../../data/rate-limit"
 	want.Policy.File, err = filepath.Abs("../../../policy.yaml")
 	if err != nil {
 		t.Fatal(err)

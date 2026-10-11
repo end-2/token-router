@@ -68,6 +68,9 @@ func Load(options Options) (Config, error) {
 			return Config{}, fmt.Errorf("command-line override: %w", err)
 		}
 	}
+	if cfg.RateLimit.Memory.Distributed.DataDir != "" && !filepath.IsAbs(cfg.RateLimit.Memory.Distributed.DataDir) {
+		cfg.RateLimit.Memory.Distributed.DataDir = filepath.Join(filepath.Dir(path), cfg.RateLimit.Memory.Distributed.DataDir)
+	}
 	base := cfg.Mutable()
 	if cfg.Policy.File != "" {
 		cfg.policyBase = &base

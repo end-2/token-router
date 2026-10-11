@@ -13,12 +13,13 @@ import (
 // MaxPolicyBytes bounds both file reads and admin request bodies.
 const MaxPolicyBytes = 1 << 20
 
-// LimitValues contains only limits that can change without replacing the backend.
+// LimitValues contains limits and account selection that can change without replacing the backend.
 type LimitValues struct {
 	RequestsPerSecond float64 `yaml:"requests_per_second"`
 	Burst             int     `yaml:"burst"`
 	TokensPerSecond   float64 `yaml:"tokens_per_second"`
 	TokenBurst        int     `yaml:"token_burst"`
+	Account           Account `yaml:"account"`
 }
 
 // PolicyConfig is the complete set of settings accepted during policy updates.
@@ -30,8 +31,9 @@ type PolicyConfig struct {
 // Mutable returns an independent copy of the currently configured mutable fields.
 func (c Config) Mutable() PolicyConfig {
 	return PolicyConfig{
-		Upstream:  c.Upstream,
-		RateLimit: LimitValues{c.RateLimit.RequestsPerSecond, c.RateLimit.Burst, c.RateLimit.TokensPerSecond, c.RateLimit.TokenBurst},
+		Upstream: c.Upstream,
+		RateLimit: LimitValues{RequestsPerSecond: c.RateLimit.RequestsPerSecond, Burst: c.RateLimit.Burst,
+			TokensPerSecond: c.RateLimit.TokensPerSecond, TokenBurst: c.RateLimit.TokenBurst, Account: c.RateLimit.Account},
 	}.Clone()
 }
 
@@ -60,6 +62,7 @@ func (c PolicyConfig) Apply(base Config) Config {
 	base.RateLimit.Burst = c.RateLimit.Burst
 	base.RateLimit.TokensPerSecond = c.RateLimit.TokensPerSecond
 	base.RateLimit.TokenBurst = c.RateLimit.TokenBurst
+	base.RateLimit.Account = c.RateLimit.Account
 	return base
 }
 

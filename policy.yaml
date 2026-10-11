@@ -18,3 +18,6 @@ rate_limit:
   burst: 20
   tokens_per_second: 0
   token_burst: 0
+  account:
+    enabled: false
+    jwt_claim: sub

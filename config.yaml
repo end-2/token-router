@@ -18,6 +18,14 @@ policy:
 rate_limit:
   enabled: true
   backend: memory
+  memory:
+    distributed:
+      enabled: false
+      address: ""
+      peers: []
+      data_dir: data/rate-limit
+      token: ""
+      request_timeout: 5s
   redis:
     address: "127.0.0.1:6379"
     username: ""

@@ -1,0 +1,89 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kind-echo
+  labels:
+    app.kubernetes.io/name: kind-echo
+    app.kubernetes.io/part-of: token-router
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kind-echo
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kind-echo
+        app.kubernetes.io/part-of: token-router
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: kind-echo
+              topologyKey: kubernetes.io/hostname
+      containers:
+        - name: http-echo
+          image: hashicorp/http-echo:1.0.0@sha256:fcb75f691c8b0414d670ae570240cbf95502cc18a9ba57e982ecac589760a186
+          imagePullPolicy: IfNotPresent
+          args:
+            - -listen=:5678
+            - -text=token-router-kind-ready
+          ports:
+            - name: http
+              containerPort: 5678
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 1
+            periodSeconds: 2
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kind-echo
+  labels:
+    app.kubernetes.io/name: kind-echo
+    app.kubernetes.io/part-of: token-router
+spec:
+  type: NodePort
+  selector:
+    app.kubernetes.io/name: kind-echo
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      nodePort: 30080

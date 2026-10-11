@@ -1,0 +1,80 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kind-smoke
+  namespace: token-router-test
+  labels:
+    app.kubernetes.io/name: kind-smoke
+    app.kubernetes.io/part-of: token-router
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 90
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kind-smoke
+        app.kubernetes.io/part-of: token-router
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: smoke
+          image: busybox:1.37.0@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              response="$(wget -T 10 -qO- http://kind-echo.token-router-test.svc.cluster.local)"
+              test "$response" = "token-router-kind-ready"
+              printf '%s\n' 'Cluster DNS and Service HTTP check passed.'
+          resources:
+            requests:
+              cpu: 10m
+              memory: 8Mi
+            limits:
+              cpu: 100m
+              memory: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+        - name: redis-smoke
+          image: redis:7.4.11-alpine3.21@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              redis_host=redis.token-router-test.svc.cluster.local
+              key="kind-smoke:${HOSTNAME}"
+              response="$(redis-cli -h "$redis_host" -e --raw ping)"
+              test "$response" = PONG
+              response="$(redis-cli -h "$redis_host" -e --raw set "$key" token-router-kind-ready EX 60)"
+              test "$response" = OK
+              response="$(redis-cli -h "$redis_host" -e --raw get "$key")"
+              test "$response" = token-router-kind-ready
+              redis-cli -h "$redis_host" -e del "$key" >/dev/null
+              printf '%s\n' 'Redis DNS, PING, and SET/GET checks passed.'
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL

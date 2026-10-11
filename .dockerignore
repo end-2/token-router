@@ -1,0 +1,15 @@
+**
+!Dockerfile
+!go.mod
+!go.sum
+!.golangci.yaml
+!config.yaml
+!src/
+!src/**
+!tests/
+!tests/e2e/
+!tests/e2e/*.go
+**/.env
+**/.env.*
+**/*.key
+**/*.pem

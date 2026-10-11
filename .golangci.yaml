@@ -1,0 +1,16 @@
+version: "2"
+
+run:
+  timeout: 5m
+  build-tags:
+    - e2e
+
+linters:
+  default: standard
+  enable:
+    - bodyclose
+    - ginkgolinter
+
+formatters:
+  enable:
+    - gofmt

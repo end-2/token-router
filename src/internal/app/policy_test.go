@@ -82,6 +82,9 @@ func TestAdminUpdatesPersistAndRejectInvalidChanges(t *testing.T) {
 				`{"rate_limit":{"backend":"redis"}}`, `{"rate_limit":{"enabled":false}}`,
 				`{"upstream":{"base_urls":["bad-secret"]},"rate_limit":{"burst":10}}`,
 				`{"rate_limit":{"tokens_per_second":0}}`, `{"upstream":{"api_key":null}}`,
+				`{"upstream":{"transport":{"max_conns_per_host":-1}}}`,
+				`{"upstream":{"transport":{"tls_handshake_timeout":"-1s"}}}`,
+				`{"transport":{"max_conns_per_host":7}}`,
 			} {
 				response = adminRequest(t, a, http.MethodPatch, body)
 				if response.Code != http.StatusBadRequest || strings.Contains(response.Body.String(), "bad-secret") {
@@ -96,7 +99,7 @@ func TestAdminUpdatesPersistAndRejectInvalidChanges(t *testing.T) {
 				t.Fatal("invalid update changed the file")
 			}
 			get := adminRequest(t, a, http.MethodGet, "")
-			if get.Code != http.StatusOK || strings.Contains(get.Body.String(), "backend") || get.Header().Get("Cache-Control") != "no-store" {
+			if get.Code != http.StatusOK || strings.Contains(get.Body.String(), "backend") || strings.Contains(get.Body.String(), "transport") || get.Header().Get("Cache-Control") != "no-store" {
 				t.Fatal("GET did not return mutable settings")
 			}
 			if response := adminRequest(t, a, http.MethodPut, get.Body.String()); response.Code != http.StatusOK {
@@ -128,6 +131,29 @@ func TestAdminPersistenceFailureAndBodyLimit(t *testing.T) {
 	a.ready.Store(false)
 	if w := adminRequest(t, a, http.MethodPatch, "{}"); w.Code != http.StatusServiceUnavailable {
 		t.Fatalf("update during shutdown returned %d", w.Code)
+	}
+}
+
+func TestPolicyReplacementPreservesStartupTransport(t *testing.T) {
+	a := policyApplication(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-Padding", strings.Repeat("x", 2048))
+		w.WriteHeader(http.StatusNoContent)
+	}), func(c *config.Config) { c.Transport.MaxResponseHeaderBytes = 512 })
+	for _, phase := range []string{"startup", "after policy replacement"} {
+		t.Run(phase, func(t *testing.T) {
+			if phase == "after policy replacement" {
+				before := a.proxy
+				response := adminRequest(t, a, http.MethodPatch, `{"upstream":{"api_key":"replacement-key"}}`)
+				if response.Code != http.StatusOK || a.proxy == before {
+					t.Fatalf("policy did not replace proxy: %d", response.Code)
+				}
+			}
+			w := httptest.NewRecorder()
+			a.handler().ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/models", nil))
+			if w.Code != http.StatusBadGateway {
+				t.Fatalf("startup response header limit was not applied: %d", w.Code)
+			}
+		})
 	}
 }
 
@@ -278,7 +304,7 @@ func TestConcurrentAdminFileAndProxyRequests(t *testing.T) {
 	var wg sync.WaitGroup
 	for i := range 30 {
 		wg.Go(func() {
-			w := adminRequest(t, a, http.MethodPatch, fmt.Sprintf(`{"upstream":{"max_idle_conns":%d},"rate_limit":{"burst":%d}}`, i+1, i+1))
+			w := adminRequest(t, a, http.MethodPatch, fmt.Sprintf(`{"upstream":{"request_timeout":"%ds"},"rate_limit":{"burst":%d}}`, i+1, i+1))
 			if w.Code != http.StatusOK {
 				t.Errorf("admin status %d", w.Code)
 			}

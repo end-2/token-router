@@ -97,7 +97,7 @@ func (a *application) newProxyFor(cfg config.PolicyConfig) (*proxy.Handler, erro
 	if a.cfg.RateLimit.Enabled && cfg.RateLimit.TokensPerSecond > 0 {
 		options = append(options, proxy.WithUsageRecorder(a.recordUsage))
 	}
-	return proxy.New(cfg.Upstream, a.logger, options...)
+	return proxy.New(cfg.Upstream, a.cfg.Transport, a.logger, options...)
 }
 
 func (a *application) recordUsage(ctx context.Context, tokens int64) {

@@ -97,6 +97,23 @@ func TestValidateCommand(t *testing.T) {
 	}
 }
 
+func TestTransportFlags(t *testing.T) {
+	isolatedEnvironment(t)
+	t.Setenv("TOKEN_ROUTER_TRANSPORT_MAX_CONNS_PER_HOST", "20")
+	root := NewCommand(func(_ context.Context, cfg config.Config) error {
+		if cfg.Transport.MaxConnsPerHost != 30 || cfg.Transport.ForceAttemptHTTP2 ||
+			!cfg.Transport.DisableKeepAlives || cfg.Transport.MaxResponseHeaderBytes != 1<<33 {
+			t.Error("transport flags did not apply typed overrides")
+		}
+		return nil
+	})
+	root.SetArgs([]string{"serve", "--transport-max-conns-per-host=30", "--transport-force-attempt-http2=false",
+		"--transport-disable-keep-alives", "--transport-max-response-header-bytes=8589934592"})
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestConfigFlagTakesPriorityOverEnvironment(t *testing.T) {
 	isolatedEnvironment(t)
 	path := filepath.Join(t.TempDir(), "selected.yaml")

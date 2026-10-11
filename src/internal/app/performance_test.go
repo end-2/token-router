@@ -76,7 +76,7 @@ func BenchmarkProxyPipeline(b *testing.B) {
 			if cfg.RateLimit.TokensPerSecond > 0 {
 				options = append(options, proxy.WithUsageRecorder(a.recordUsage))
 			}
-			p, err := proxy.New(cfg.Upstream, a.logger, options...)
+			p, err := proxy.New(cfg.Upstream, cfg.Transport, a.logger, options...)
 			if err != nil {
 				b.Fatal(err)
 			}

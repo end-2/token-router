@@ -53,7 +53,7 @@ func TestLoadRoutingPrecedence(t *testing.T) {
 			case "environment":
 				options.LookupEnv = lookup(map[string]string{"TOKEN_ROUTER_UPSTREAM_BASE_URLS": targets, "TOKEN_ROUTER_UPSTREAM_ROUTES": routes})
 			case "flags":
-				options.LookupEnv = lookup(map[string]string{"TOKEN_ROUTER_UPSTREAM_BASE_URLS": `["env:8000"]`, "TOKEN_ROUTER_UPSTREAM_ROUTES": "[]"})
+				options.LookupEnv = lookup(map[string]string{"TOKEN_ROUTER_UPSTREAM_BASE_URLS": `["env:8000"]`, "TOKEN_ROUTER_UPSTREAM_ROUTES": "[]"}) //nolint:gosec // These routing environment values are test fixtures, not credentials.
 				options.Overrides = map[string]string{"upstream.base_urls": targets, "upstream.routes": routes}
 			}
 			writeConfig(t, path, body)

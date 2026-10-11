@@ -75,12 +75,12 @@ func TestUpstreamUsageLimitsSubsequentRequests(t *testing.T) {
 					}), limiter, func(c *config.Config) { c.RateLimit = cfg.RateLimit })
 					handler := a.handler()
 					first := httptest.NewRecorder()
-					handler.ServeHTTP(first, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil))
+					handler.ServeHTTP(first, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", nil))
 					if first.Code != status || first.Body.String() != test.body {
 						t.Fatalf("first response changed: status=%d body=%q", first.Code, first.Body.String())
 					}
 					second := httptest.NewRecorder()
-					handler.ServeHTTP(second, httptest.NewRequest(http.MethodPost, "/v1/responses", nil))
+					handler.ServeHTTP(second, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil))
 					if test.denied {
 						if second.Code != http.StatusTooManyRequests || forwarded.Load() != 1 {
 							t.Fatalf("token quota not enforced: status=%d forwarded=%d", second.Code, forwarded.Load())
@@ -129,7 +129,7 @@ func TestUsageObservationDisabled(t *testing.T) {
 				}
 			})
 			response := httptest.NewRecorder()
-			a.handler().ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/v1/responses", nil))
+			a.handler().ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil))
 			if response.Code != http.StatusOK {
 				t.Fatalf("status=%d", response.Code)
 			}

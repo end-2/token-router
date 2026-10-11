@@ -80,10 +80,10 @@ func NewTelemetry(ctx context.Context, cfg config.Telemetry, output io.Writer) (
 		logger: slog.New(local), tracer: tracenoop.NewTracerProvider().Tracer(instrumentationName),
 		propagator: propagation.TraceContext{}, tracing: cfg.OTLP.Enabled && cfg.Traces.Enabled,
 	}
-	t.exportContext, t.cancelExports = context.WithCancel(context.Background())
+	t.exportContext, t.cancelExports = context.WithCancel(context.WithoutCancel(ctx))
 	defer func() {
 		if err != nil {
-			shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
+			shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cfg.ShutdownTimeout)
 			defer cancel()
 			err = errors.Join(err, t.Shutdown(shutdownCtx))
 		}

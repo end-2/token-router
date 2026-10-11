@@ -53,7 +53,7 @@ func TestAccountIdentifier(t *testing.T) {
 		{"long auth", "Bearer " + strings.Repeat("a", 16<<10), "sub", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			r := httptest.NewRequest("GET", "/v1/models", nil)
+			r := httptest.NewRequestWithContext(t.Context(), "GET", "/v1/models", nil)
 			r.Header.Set("Authorization", tc.authorization)
 			got, ok := accountIdentifier(r, config.Account{Enabled: true, JWTClaim: tc.claim})
 			if ok != (tc.want != "") || (ok && got != tc.want) {
@@ -61,7 +61,7 @@ func TestAccountIdentifier(t *testing.T) {
 			}
 		})
 	}
-	r := httptest.NewRequest("GET", "/v1/models", nil)
+	r := httptest.NewRequestWithContext(t.Context(), "GET", "/v1/models", nil)
 	r.Header.Add("Authorization", accountBasic("alice", "pw"))
 	r.Header.Add("Authorization", accountBasic("bob", "pw"))
 	if _, ok := accountIdentifier(r, config.Account{JWTClaim: "sub"}); ok {
@@ -82,12 +82,12 @@ func TestAccountLimitsAndPolicyUpdate(t *testing.T) {
 			t.Error(err)
 		}
 	})
-	a := testApplication(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	a := testApplication(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}), limiter, func(c *config.Config) { c.RateLimit = cfg.RateLimit })
 	request := func(auth string, want int) {
 		t.Helper()
-		r := httptest.NewRequest("GET", "/v1/models", nil)
+		r := httptest.NewRequestWithContext(t.Context(), "GET", "/v1/models", nil)
 		if auth != "" {
 			r.Header.Set("Authorization", auth)
 		}
@@ -136,7 +136,7 @@ func TestAccountUsageRetainsIdentityAcrossPolicyUpdate(t *testing.T) {
 		}
 	})
 	entered, release := make(chan struct{}), make(chan struct{})
-	a := testApplication(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	a := testApplication(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		close(entered)
 		<-release
 		w.Header().Set("Content-Type", "application/json")
@@ -144,7 +144,7 @@ func TestAccountUsageRetainsIdentityAcrossPolicyUpdate(t *testing.T) {
 			t.Error(err)
 		}
 	}), limiter, func(c *config.Config) { c.RateLimit = cfg.RateLimit })
-	r := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(`{}`))
+	r := httptest.NewRequestWithContext(t.Context(), "POST", "/v1/chat/completions", strings.NewReader(`{}`))
 	r.Header.Set("Authorization", accountJWT(`{"sub":"alice"}`))
 	w := httptest.NewRecorder()
 	done := make(chan struct{})

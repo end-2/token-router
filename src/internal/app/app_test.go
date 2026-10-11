@@ -78,12 +78,12 @@ func TestRoutesAndRateLimit(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			limiter := &fixedLimiter{decision: tc.decision, err: tc.err}
 			upstreamCalls := 0
-			a := testApplication(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			a := testApplication(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				upstreamCalls++
 				w.WriteHeader(http.StatusCreated)
 			}), limiter)
 			r := httptest.NewRecorder()
-			a.handler().ServeHTTP(r, httptest.NewRequest(http.MethodGet, tc.path, nil))
+			a.handler().ServeHTTP(r, httptest.NewRequestWithContext(t.Context(), http.MethodGet, tc.path, nil))
 			if r.Code != tc.status || limiter.calls != tc.calls {
 				t.Fatalf("status=%d calls=%d, want status=%d calls=%d", r.Code, limiter.calls, tc.status, tc.calls)
 			}
@@ -97,7 +97,7 @@ func TestRoutesAndRateLimit(t *testing.T) {
 				t.Fatal("backend details exposed")
 			}
 			metrics := httptest.NewRecorder()
-			a.metrics.Handler().ServeHTTP(metrics, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+			a.metrics.Handler().ServeHTTP(metrics, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/metrics", nil))
 			if !strings.Contains(metrics.Body.String(), `status="`+httpStatus(tc.status)+`"`) {
 				t.Fatal("final response status missing from metrics")
 			}
@@ -121,7 +121,7 @@ func TestNotReadyRejectsNewRequests(t *testing.T) {
 	a.ready.Store(false)
 	for _, path := range []string{"/readyz", "/v1/models"} {
 		r := httptest.NewRecorder()
-		a.handler().ServeHTTP(r, httptest.NewRequest(http.MethodGet, path, nil))
+		a.handler().ServeHTTP(r, httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil))
 		if r.Code != http.StatusServiceUnavailable {
 			t.Fatalf("%s returned %d", path, r.Code)
 		}
@@ -137,12 +137,13 @@ func TestShutdownDrainsAndEnforcesDeadline(t *testing.T) {
 			entered, release, exited := make(chan struct{}), make(chan struct{}), make(chan struct{})
 			requestCtx, cancelRequests := context.WithCancel(context.Background())
 			defer cancelRequests()
-			listener, err := net.Listen("tcp", "127.0.0.1:0")
+			listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 			if err != nil {
 				t.Fatal(err)
 			}
 			server := &http.Server{
-				BaseContext: func(net.Listener) context.Context { return requestCtx },
+				ReadHeaderTimeout: time.Second,
+				BaseContext:       func(net.Listener) context.Context { return requestCtx },
 				Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					close(entered)
 					defer close(exited)
@@ -168,7 +169,12 @@ func TestShutdownDrainsAndEnforcesDeadline(t *testing.T) {
 			response := make(chan error, 1)
 			go func() {
 				client := &http.Client{Timeout: 3 * time.Second}
-				r, err := client.Get("http://" + listener.Addr().String())
+				request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+listener.Addr().String(), nil)
+				if err != nil {
+					response <- err
+					return
+				}
+				r, err := client.Do(request)
 				if err == nil {
 					err = r.Body.Close()
 					if r.StatusCode != http.StatusNoContent {
@@ -224,7 +230,7 @@ func TestPrometheusListenerSelectionWithoutOTLP(t *testing.T) {
 		{"Prometheus disabled", true, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			occupied, err := net.Listen("tcp", "127.0.0.1:0")
+			occupied, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -254,7 +260,7 @@ func TestPrometheusListenerSelectionWithoutOTLP(t *testing.T) {
 }
 
 func TestMetricsListenFailureClosesAPIListener(t *testing.T) {
-	occupied, err := net.Listen("tcp", "127.0.0.1:0")
+	occupied, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -263,7 +269,7 @@ func TestMetricsListenFailureClosesAPIListener(t *testing.T) {
 			t.Error(err)
 		}
 	})
-	available, err := net.Listen("tcp", "127.0.0.1:0")
+	available, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -277,7 +283,7 @@ func TestMetricsListenFailureClosesAPIListener(t *testing.T) {
 	if err := a.serve(context.Background()); err == nil {
 		t.Fatal("expected metrics bind failure")
 	}
-	reopened, err := net.Listen("tcp", address)
+	reopened, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", address)
 	if err != nil {
 		t.Fatalf("API listener leaked: %v", err)
 	}

@@ -18,7 +18,7 @@ import (
 func TestInformationalResponsePreservesFinalStatus(t *testing.T) {
 	for _, status := range []int{http.StatusContinue, http.StatusEarlyHints} {
 		t.Run(http.StatusText(status), func(t *testing.T) {
-			a := testApplication(t, http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			a := testApplication(t, http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 				writer.Header().Set("Link", "</style.css>; rel=preload")
 				writer.WriteHeader(status)
 				writer.Header().Del("Link")
@@ -32,7 +32,7 @@ func TestInformationalResponsePreservesFinalStatus(t *testing.T) {
 			server := httptest.NewServer(a.handler())
 			defer server.Close()
 			informational := make(chan int, 2)
-			trace := &httptrace.ClientTrace{Got1xxResponse: func(code int, header textproto.MIMEHeader) error {
+			trace := &httptrace.ClientTrace{Got1xxResponse: func(code int, _ textproto.MIMEHeader) error {
 				informational <- code
 				return nil
 			}}
@@ -65,7 +65,7 @@ func TestInformationalResponsePreservesFinalStatus(t *testing.T) {
 				t.Fatal("informational response was not forwarded")
 			}
 			metrics := httptest.NewRecorder()
-			a.metrics.Handler().ServeHTTP(metrics, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+			a.metrics.Handler().ServeHTTP(metrics, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/metrics", nil))
 			if !strings.Contains(metrics.Body.String(), `token_router_http_requests_total{method="GET",route="/v1/*",status="429"} 1`) {
 				t.Fatal("metrics did not record the final upstream status")
 			}
@@ -95,7 +95,11 @@ func TestProxyResponseWriterPreservesStreamingFlush(t *testing.T) {
 	}), &fixedLimiter{decision: bucket.Decision{Allowed: true}})
 	server := httptest.NewServer(a.handler())
 	defer server.Close()
-	response, err := (&http.Client{Timeout: 2 * time.Second}).Get(server.URL + "/v1/responses")
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL+"/v1/responses", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := (&http.Client{Timeout: 2 * time.Second}).Do(request)
 	if err != nil {
 		t.Fatal(err)
 	}

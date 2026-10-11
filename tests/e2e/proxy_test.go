@@ -223,8 +223,8 @@ var _ = Describe("the running proxy", func() {
 	}, SpecTimeout(15*time.Second))
 
 	DescribeTable("rejects invalid configuration before opening listeners",
-		func(options routerOptions, message string) {
-			process := launchRouter("http://127.0.0.1:1", options)
+		func(ctx SpecContext, options routerOptions, message string) {
+			process := launchRouter(ctx, "http://127.0.0.1:1", options)
 			Eventually(process.session, requestTimeout).Should(gexec.Exit(1))
 			Expect(process.session.Err).To(gbytes.Say(message))
 			Expect(listenerAddresses(process.session.Err.Contents())).To(BeEmpty())

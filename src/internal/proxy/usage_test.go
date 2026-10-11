@@ -160,7 +160,7 @@ func TestUsageRecorderPreservesProxyExchange(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer handler.CloseIdleConnections()
-			request := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(requestBody))
+			request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(requestBody))
 			request = request.WithContext(context.WithValue(request.Context(), contextKey{}, "request-value"))
 			request.Header.Set("Accept-Encoding", "gzip")
 			response := httptest.NewRecorder()
@@ -220,7 +220,7 @@ func TestUsageRecorderIgnoresIneligibleResponses(t *testing.T) {
 			}))
 			defer upstream.Close()
 			handler := usageTestHandler(t, upstream.URL+test.basePath, func(context.Context, int64) { t.Error("ineligible response recorded usage") })
-			request := httptest.NewRequest(test.method, test.path, nil)
+			request := httptest.NewRequestWithContext(t.Context(), test.method, test.path, nil)
 			request.Header.Set("Accept-Encoding", "gzip")
 			response := httptest.NewRecorder()
 			handler.ServeHTTP(response, request)
@@ -257,7 +257,7 @@ func TestUsageRecorderGenerationEndpoints(t *testing.T) {
 			defer upstream.Close()
 			var got int64
 			handler := usageTestHandler(t, upstream.URL, func(_ context.Context, tokens int64) { got += tokens })
-			request := httptest.NewRequest(http.MethodPost, test.path, nil)
+			request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, test.path, nil)
 			response := httptest.NewRecorder()
 			handler.ServeHTTP(response, request)
 			if response.Code != http.StatusOK || response.Body.String() != test.body {

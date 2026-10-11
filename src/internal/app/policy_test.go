@@ -43,9 +43,10 @@ func policyApplication(t *testing.T, upstream http.Handler, configure ...func(*c
 	return a
 }
 
-func adminRequest(a *application, method, body string) *httptest.ResponseRecorder {
+func adminRequest(t *testing.T, a *application, method, body string) *httptest.ResponseRecorder {
+	t.Helper()
 	w := httptest.NewRecorder()
-	a.adminHandler().ServeHTTP(w, httptest.NewRequest(method, "/config", strings.NewReader(body)))
+	a.adminHandler().ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), method, "/config", strings.NewReader(body)))
 	return w
 }
 
@@ -61,7 +62,7 @@ func TestAdminUpdatesPersistAndRejectInvalidChanges(t *testing.T) {
 					c.RateLimit.Redis.Address = miniredis.RunT(t).Addr()
 				}
 			})
-			response := adminRequest(a, http.MethodPatch, `{"upstream":{"base_urls":["localhost:9001"],"request_timeout":"2s"},"rate_limit":{"burst":3,"tokens_per_second":2,"token_burst":5}}`)
+			response := adminRequest(t, a, http.MethodPatch, `{"upstream":{"base_urls":["localhost:9001"],"request_timeout":"2s"},"rate_limit":{"burst":3,"tokens_per_second":2,"token_burst":5}}`)
 			if response.Code != http.StatusOK {
 				t.Fatalf("update: %d %s", response.Code, response.Body)
 			}
@@ -82,7 +83,7 @@ func TestAdminUpdatesPersistAndRejectInvalidChanges(t *testing.T) {
 				`{"upstream":{"base_urls":["bad-secret"]},"rate_limit":{"burst":10}}`,
 				`{"rate_limit":{"tokens_per_second":0}}`, `{"upstream":{"api_key":null}}`,
 			} {
-				response = adminRequest(a, http.MethodPatch, body)
+				response = adminRequest(t, a, http.MethodPatch, body)
 				if response.Code != http.StatusBadRequest || strings.Contains(response.Body.String(), "bad-secret") {
 					t.Fatalf("invalid update: %d %s", response.Code, response.Body)
 				}
@@ -94,11 +95,11 @@ func TestAdminUpdatesPersistAndRejectInvalidChanges(t *testing.T) {
 			if err != nil || string(unchanged) != string(data) {
 				t.Fatal("invalid update changed the file")
 			}
-			get := adminRequest(a, http.MethodGet, "")
+			get := adminRequest(t, a, http.MethodGet, "")
 			if get.Code != http.StatusOK || strings.Contains(get.Body.String(), "backend") || get.Header().Get("Cache-Control") != "no-store" {
 				t.Fatal("GET did not return mutable settings")
 			}
-			if response := adminRequest(a, http.MethodPut, get.Body.String()); response.Code != http.StatusOK {
+			if response := adminRequest(t, a, http.MethodPut, get.Body.String()); response.Code != http.StatusOK {
 				t.Fatalf("GET/PUT round trip: %s", response.Body)
 			}
 		})
@@ -115,17 +116,17 @@ func TestAdminPersistenceFailureAndBodyLimit(t *testing.T) {
 	}
 	a := policyApplication(t, http.NotFoundHandler(), func(c *config.Config) { c.Policy.File = link })
 	before := a.snapshot()
-	if w := adminRequest(a, http.MethodPatch, `{"rate_limit":{"burst":5}}`); w.Code != http.StatusInternalServerError {
+	if w := adminRequest(t, a, http.MethodPatch, `{"rate_limit":{"burst":5}}`); w.Code != http.StatusInternalServerError {
 		t.Fatalf("expected persistence failure: %d %s", w.Code, w.Body)
 	}
 	if !reflect.DeepEqual(before, a.snapshot()) {
 		t.Fatal("failed persistence changed active state")
 	}
-	if w := adminRequest(a, http.MethodPatch, strings.Repeat("x", config.MaxPolicyBytes+1)); w.Code != http.StatusRequestEntityTooLarge {
+	if w := adminRequest(t, a, http.MethodPatch, strings.Repeat("x", config.MaxPolicyBytes+1)); w.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("oversized body returned %d", w.Code)
 	}
 	a.ready.Store(false)
-	if w := adminRequest(a, http.MethodPatch, "{}"); w.Code != http.StatusServiceUnavailable {
+	if w := adminRequest(t, a, http.MethodPatch, "{}"); w.Code != http.StatusServiceUnavailable {
 		t.Fatalf("update during shutdown returned %d", w.Code)
 	}
 }
@@ -217,7 +218,12 @@ func TestPolicySwapPreservesStreamAndAccountsUsage(t *testing.T) {
 	t.Cleanup(server.Close)
 	t.Cleanup(finish)
 	client := &http.Client{Timeout: 5 * time.Second}
-	response, err := client.Post(server.URL+"/v1/chat/completions", "application/json", strings.NewReader("{}"))
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodPost, server.URL+"/v1/chat/completions", strings.NewReader("{}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	response, err := client.Do(request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -238,7 +244,7 @@ func TestPolicySwapPreservesStreamAndAccountsUsage(t *testing.T) {
 	t.Cleanup(next.Close)
 	updated := make(chan *httptest.ResponseRecorder, 1)
 	go func() {
-		updated <- adminRequest(a, http.MethodPatch, fmt.Sprintf(`{"upstream":{"base_urls":[%q]},"rate_limit":{"token_burst":20}}`, next.URL))
+		updated <- adminRequest(t, a, http.MethodPatch, fmt.Sprintf(`{"upstream":{"base_urls":[%q]},"rate_limit":{"token_burst":20}}`, next.URL))
 	}()
 	select {
 	case w := <-updated:
@@ -249,7 +255,7 @@ func TestPolicySwapPreservesStreamAndAccountsUsage(t *testing.T) {
 		t.Fatal("open stream blocked configuration update")
 	}
 	w := httptest.NewRecorder()
-	a.handler().ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v1/models", nil))
+	a.handler().ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/models", nil))
 	if w.Code != http.StatusOK || w.Body.String() != "new upstream" {
 		t.Fatal("new request did not use replacement upstream")
 	}
@@ -259,7 +265,7 @@ func TestPolicySwapPreservesStreamAndAccountsUsage(t *testing.T) {
 	}
 	eventually(t, func() bool {
 		w := httptest.NewRecorder()
-		a.handler().ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v1/models", nil))
+		a.handler().ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/models", nil))
 		return w.Code == http.StatusTooManyRequests
 	})
 }
@@ -272,7 +278,7 @@ func TestConcurrentAdminFileAndProxyRequests(t *testing.T) {
 	var wg sync.WaitGroup
 	for i := range 30 {
 		wg.Go(func() {
-			w := adminRequest(a, http.MethodPatch, fmt.Sprintf(`{"upstream":{"max_idle_conns":%d},"rate_limit":{"burst":%d}}`, i+1, i+1))
+			w := adminRequest(t, a, http.MethodPatch, fmt.Sprintf(`{"upstream":{"max_idle_conns":%d},"rate_limit":{"burst":%d}}`, i+1, i+1))
 			if w.Code != http.StatusOK {
 				t.Errorf("admin status %d", w.Code)
 			}
@@ -280,7 +286,7 @@ func TestConcurrentAdminFileAndProxyRequests(t *testing.T) {
 				t.Error(err)
 			}
 			w = httptest.NewRecorder()
-			handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v1/models", nil))
+			handler.ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/models", nil))
 			if w.Code != http.StatusNoContent && w.Code != http.StatusTooManyRequests {
 				t.Errorf("proxy status %d", w.Code)
 			}
@@ -290,7 +296,7 @@ func TestConcurrentAdminFileAndProxyRequests(t *testing.T) {
 }
 
 func TestAdminBindFailureClosesPublicListener(t *testing.T) {
-	occupied, err := net.Listen("tcp", "127.0.0.1:0")
+	occupied, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -299,7 +305,7 @@ func TestAdminBindFailureClosesPublicListener(t *testing.T) {
 			t.Error(err)
 		}
 	})
-	available, err := net.Listen("tcp", "127.0.0.1:0")
+	available, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -314,7 +320,7 @@ func TestAdminBindFailureClosesPublicListener(t *testing.T) {
 	if err := a.serve(t.Context()); err == nil {
 		t.Fatal("occupied admin address did not fail startup")
 	}
-	reopened, err := net.Listen("tcp", address)
+	reopened, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", address)
 	if err != nil {
 		t.Fatalf("public listener leaked: %v", err)
 	}

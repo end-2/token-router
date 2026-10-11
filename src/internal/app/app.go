@@ -50,7 +50,7 @@ func Run(ctx context.Context, cfg config.Config) (err error) {
 		return fmt.Errorf("initialize telemetry: %w", err)
 	}
 	defer func() {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.Telemetry.ShutdownTimeout)
+		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cfg.Telemetry.ShutdownTimeout)
 		defer cancel()
 		if shutdownErr := telemetry.Shutdown(shutdownCtx); shutdownErr != nil {
 			err = errors.Join(err, fmt.Errorf("telemetry shutdown: %w", shutdownErr))
@@ -177,7 +177,7 @@ func apiError(c *echo.Context, status int, code, message string) error {
 
 func (a *application) serve(ctx context.Context) error {
 	// Request contexts survive the termination signal so that HTTP Shutdown can drain them.
-	requestCtx, cancelRequests := context.WithCancel(context.Background())
+	requestCtx, cancelRequests := context.WithCancel(context.WithoutCancel(ctx))
 	defer cancelRequests()
 	servers := []*http.Server{{
 		Addr: a.cfg.Server.Address, Handler: a.handler(),
@@ -258,7 +258,7 @@ func (a *application) serveListeners(ctx context.Context, servers []*http.Server
 	a.policyClosed = true
 	a.policyMu.Unlock()
 	a.logger.Info("shutting down HTTP listeners", "timeout", a.cfg.Server.ShutdownTimeout)
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), a.cfg.Server.ShutdownTimeout)
+	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), a.cfg.Server.ShutdownTimeout)
 	defer cancel()
 	shutdownErrors := make([]error, len(servers))
 	var wg sync.WaitGroup

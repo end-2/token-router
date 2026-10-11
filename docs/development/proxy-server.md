@@ -57,7 +57,33 @@ make e2e
 
 [`streaming_body_test.go`](../../src/internal/proxy/streaming_body_test.go) starts an SSE response while delaying the upstream transport's final request body read, then verifies that both body reading and stream forwarding finish.
 
-`make vet` and `make lint` include the `e2e` build tag to check E2E test code as well. `make lint` runs `golangci-lint` v2.14.0 in Docker, adding `bodyclose`, `ginkgolinter`, and `gofmt` to the default checks in [`.golangci.yaml`](../../.golangci.yaml). See [Ginkgo E2E tests](end-to-end-tests.md) for the configuration and scenarios of `make e2e`, which uses Ginkgo and an actual Redis server.
+`make vet` and `make lint` include the `e2e` build tag to check E2E test code as well. `make lint` runs `golangci-lint` v2.14.0 in Docker using [`.golangci.yaml`](../../.golangci.yaml). See [Ginkgo E2E tests](end-to-end-tests.md) for the configuration and scenarios of `make e2e`, which uses Ginkgo and an actual Redis server.
+
+### Lint checks
+
+The configuration keeps the standard linters (`errcheck`, `govet`, `ineffassign`, `staticcheck`, and `unused`) and the `gofmt` formatter. Additional linters target correctness, security, context propagation, and idiomatic Go:
+
+| Focus | Additional linters |
+| --- | --- |
+| HTTP resources and context propagation | `bodyclose`, `contextcheck`, `noctx` |
+| Errors and nil results | `errorlint`, `nilerr`, `nilnesserr`, `nilnil` |
+| Security and logging | `gosec`, `loggercheck` |
+| Common mistakes and redundant code | `copyloopvar`, `durationcheck`, `gocritic`, `makezero`, `unconvert`, `unparam` |
+| Style, spelling, and standard library usage | `misspell`, `revive`, `usestdlibvars` |
+| Tests | `ginkgolinter`, `usetesting` |
+| Lint suppression hygiene | `nolintlint` |
+
+Issue counts are unlimited so repeated findings remain visible. Every `nolint` directive must name its linter and explain its purpose. Ginkgo and Gomega are the only allowed dot import packages. A targeted `contextcheck` exclusion covers `WithUsageRecorder` callback construction in `src/internal/app/`: those callbacks inherit the HTTP request context when they execute, rather than the startup or policy watcher context. Inline `gosec` exceptions identify operator-selected configuration paths and credential-free routing fixtures. The distributed limiter's inline `contextcheck` exception documents cancellation linked to both the caller and the stream lifetime.
+
+For local configuration and formatting validation with the same installed version:
+
+```sh
+golangci-lint config verify
+golangci-lint fmt --diff
+make lint-local
+```
+
+The enabled checks and settings are based on the [v2.14.0 configuration reference](https://github.com/golangci/golangci-lint/blob/v2.14.0/.golangci.reference.yml). The reference lists available options, rather than prescribing a universal linter selection.
 
 ## Using host tools
 

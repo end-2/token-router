@@ -30,8 +30,8 @@ func BenchmarkMemoryAllow(b *testing.B) {
 }
 
 func BenchmarkMemoryAllowParallel(b *testing.B) {
-	for _, accounts := range []int{1, 256} {
-		b.Run("accounts="+strconv.Itoa(accounts), func(b *testing.B) {
+	for _, accounts := range []uint64{1, 256} {
+		b.Run("accounts="+strconv.FormatUint(accounts, 10), func(b *testing.B) {
 			l := newMemory(1e12, 1000, 0, 0)
 			contexts := make([]context.Context, accounts)
 			for i := range contexts {
@@ -44,7 +44,7 @@ func BenchmarkMemoryAllowParallel(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 			b.RunParallel(func(pb *testing.PB) {
-				i := int(worker.Add(1))
+				i := worker.Add(1)
 				for pb.Next() {
 					if _, err := l.Allow(contexts[i%accounts]); err != nil {
 						b.Error(err)

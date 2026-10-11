@@ -65,7 +65,7 @@ func TestRoutingSelectorsAndPriority(t *testing.T) {
 		{"equal specificity follows configuration order", "tie.example.com", `{"model":"chat"}`, "model"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(test.body))
+			request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(test.body))
 			request.Host = test.host
 			request.Header.Set("Content-Type", "application/json; charset=utf-8")
 			request.Header.Set("X-Forwarded-Host", "api.example.com")
@@ -89,7 +89,7 @@ func TestRoutingRoundRobinAndDuplicateConditions(t *testing.T) {
 	}
 	handler := newTestHandler(t, cfg)
 	forward := func() string {
-		request := httptest.NewRequest(http.MethodPost, "http://api.example.com/v1/responses", strings.NewReader(`{"model":"chat"}`))
+		request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "http://api.example.com/v1/responses", strings.NewReader(`{"model":"chat"}`))
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)
 		if response.Code != http.StatusOK {
@@ -139,7 +139,7 @@ func TestDefaultPoolAndCatchAll(t *testing.T) {
 			handler := newTestHandler(t, cfg)
 			for _, want := range test.want {
 				response := httptest.NewRecorder()
-				handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/v1/models", nil))
+				handler.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/models", nil))
 				if response.Code != http.StatusOK || response.Header().Get("X-Upstream") != want {
 					t.Fatalf("status=%d upstream=%q; want %q", response.Code, response.Header().Get("X-Upstream"), want)
 				}
@@ -181,7 +181,7 @@ func TestRoutingBodyValidation(t *testing.T) {
 			}
 			cfg.Routes = []config.UpstreamRoute{{Host: "api.example.com", Model: model, BaseURLs: []string{target}}}
 			handler := newTestHandler(t, cfg)
-			request := httptest.NewRequest(http.MethodPost, "http://api.example.com/v1/responses", strings.NewReader(test.body))
+			request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "http://api.example.com/v1/responses", strings.NewReader(test.body))
 			if test.unknownLength {
 				request.ContentLength = -1
 			}
@@ -296,7 +296,7 @@ func TestRoutingBodyReadFailure(t *testing.T) {
 	cfg := upstreamConfig("")
 	cfg.Routes = []config.UpstreamRoute{{Model: "chat", BaseURLs: []string{"127.0.0.1:1"}}}
 	handler := newTestHandler(t, cfg)
-	request := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil)
 	request.Body = io.NopCloser(failingRoutingBody{})
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
@@ -320,14 +320,14 @@ func TestRoutingPreservesRequestContext(t *testing.T) {
 			if request.Context().Value(contextKey{}) != "retained" {
 				t.Error("routing lost request context")
 			}
-			return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("ok")), Request: request}, nil
+			return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("ok")), Request: request}, nil
 		})
 	}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer handler.CloseIdleConnections()
-	request := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"chat"}`))
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"chat"}`))
 	request = request.WithContext(context.WithValue(request.Context(), contextKey{}, "retained"))
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)

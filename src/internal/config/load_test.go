@@ -119,7 +119,7 @@ func TestRejectInvalidYAML(t *testing.T) {
 	tests := []struct{ name, body string }{
 		{"empty", ""}, {"malformed", "server: ["}, {"scalar", "secret-value"},
 		{"root null", "null"}, {"nested null", "server: null"}, {"leaf null", "upstream:\n  api_key: null"},
-		{"unknown field", "server:\n  adress: ':8080'"}, {"unknown section", "unknown: {}"},
+		{"unknown field", "server:\n  unknown_address: ':8080'"}, {"unknown section", "unknown: {}"},
 		{"top-level metrics", "metrics:\n  enabled: false"},
 		{"top-level log", "log:\n  level: info"},
 		{"telemetry master switch", "telemetry:\n  enabled: false"},

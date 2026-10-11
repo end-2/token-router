@@ -163,7 +163,7 @@ func (l *distributedLimiter) submit(ctx context.Context, operation string, token
 	}
 	ctx, cancel := context.WithTimeout(ctx, l.timeout)
 	defer cancel()
-	stop := context.AfterFunc(l.stream.ctx, cancel)
+	stop := context.AfterFunc(l.stream.ctx, cancel) //nolint:contextcheck // The stream lifetime cancels the context derived from the caller above.
 	defer stop()
 	if l.raft.State() == raft.Leader {
 		return l.apply(ctx, proposal)

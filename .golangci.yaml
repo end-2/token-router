@@ -9,7 +9,48 @@ linters:
   default: standard
   enable:
     - bodyclose
+    - contextcheck
+    - copyloopvar
+    - durationcheck
+    - errorlint
     - ginkgolinter
+    - gocritic
+    - gosec
+    - loggercheck
+    - makezero
+    - misspell
+    - nilerr
+    - nilnesserr
+    - nilnil
+    - noctx
+    - nolintlint
+    - revive
+    - unconvert
+    - unparam
+    - usestdlibvars
+    - usetesting
+  settings:
+    revive:
+      rules:
+        - name: dot-imports
+          arguments:
+            - allowed-packages:
+                - github.com/onsi/ginkgo/v2
+                - github.com/onsi/gomega
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+  exclusions:
+    rules:
+      # ReverseProxy callbacks use the HTTP request context after construction.
+      - path: src/internal/app/
+        linters:
+          - contextcheck
+        text: 'WithUsageRecorder'
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
 
 formatters:
   enable:

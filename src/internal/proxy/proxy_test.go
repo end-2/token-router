@@ -53,7 +53,7 @@ func TestForwardRequestAndUpstreamError(t *testing.T) {
 			cfg := upstreamConfig(upstream.URL + "/prefix/")
 			cfg.APIKey, cfg.Organization, cfg.Project = test.apiKey, test.organization, test.project
 			handler := newTestHandler(t, cfg)
-			request := httptest.NewRequest(http.MethodPost, "http://client.invalid/v1/files/a%2Fb/content?foo=one&foo=two&encoding=a%2Bb", strings.NewReader(`{"stream":true}`))
+			request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "http://client.invalid/v1/files/a%2Fb/content?foo=one&foo=two&encoding=a%2Bb", strings.NewReader(`{"stream":true}`))
 			request.Header.Set("Authorization", "Bearer client-secret")
 			request.Header.Set("OpenAI-Organization", "client-org")
 			request.Header.Set("OpenAI-Project", "client-project")
@@ -101,7 +101,7 @@ func TestRedirectIsPassedThrough(t *testing.T) {
 	defer upstream.Close()
 	handler := newTestHandler(t, upstreamConfig(upstream.URL))
 	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/v1/models", nil))
+	handler.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/models", nil))
 	if response.Code != http.StatusTemporaryRedirect || response.Header().Get("Location") != "/redirected" || followed.Load() {
 		t.Fatalf("redirect was not passed through unchanged: status=%d", response.Code)
 	}
@@ -119,7 +119,7 @@ func TestTransportErrorDoesNotExposeSecrets(t *testing.T) {
 	}
 	defer handler.CloseIdleConnections()
 	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/v1/models?private=query-secret", nil))
+	handler.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/models?private=query-secret", nil))
 	if response.Code != http.StatusBadGateway || !strings.Contains(response.Body.String(), `"code":"upstream_error"`) {
 		t.Fatalf("unexpected transport error: status=%d body=%s", response.Code, response.Body.String())
 	}
@@ -141,7 +141,7 @@ func TestTimeoutBeforeResponseHeaders(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			canceled := make(chan struct{})
-			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
 				<-request.Context().Done()
 				close(canceled)
 			}))
@@ -151,7 +151,7 @@ func TestTimeoutBeforeResponseHeaders(t *testing.T) {
 			cfg.RequestTimeout = test.wholeTimeout
 			handler := newTestHandler(t, cfg)
 			response := httptest.NewRecorder()
-			handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/v1/models", nil))
+			handler.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/models", nil))
 			if response.Code != http.StatusGatewayTimeout || !strings.Contains(response.Body.String(), `"code":"upstream_timeout"`) {
 				t.Fatalf("unexpected timeout: status=%d body=%s", response.Code, response.Body.String())
 			}
@@ -193,7 +193,11 @@ func TestStreamingFlushesBeforeUpstreamCompletes(t *testing.T) {
 	server := httptest.NewServer(handler)
 	defer server.Close()
 	client := &http.Client{Timeout: 2 * time.Second}
-	response, err := client.Get(server.URL + "/v1/responses")
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL+"/v1/responses", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := client.Do(request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -286,7 +290,7 @@ func TestRejectProtocolUpgrade(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			handler := newTestHandler(t, upstreamConfig("http://127.0.0.1:1"))
-			request := httptest.NewRequest(http.MethodGet, "/v1/realtime", nil)
+			request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/realtime", nil)
 			request.Header.Set("Connection", test.connection)
 			request.Header.Set("Upgrade", test.upgrade)
 			response := httptest.NewRecorder()
@@ -299,7 +303,7 @@ func TestRejectProtocolUpgrade(t *testing.T) {
 }
 
 func TestRejectUnsolicitedUpstreamUpgrade(t *testing.T) {
-	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		writer.Header().Set("Connection", "Upgrade")
 		writer.Header().Set("Upgrade", "websocket")
 		writer.WriteHeader(http.StatusSwitchingProtocols)
@@ -307,7 +311,7 @@ func TestRejectUnsolicitedUpstreamUpgrade(t *testing.T) {
 	defer upstream.Close()
 	handler := newTestHandler(t, upstreamConfig(upstream.URL))
 	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/v1/models", nil))
+	handler.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/models", nil))
 	if response.Code != http.StatusBadGateway {
 		t.Fatalf("unsolicited upstream upgrade returned status %d", response.Code)
 	}

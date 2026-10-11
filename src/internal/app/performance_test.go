@@ -87,7 +87,7 @@ func BenchmarkProxyPipeline(b *testing.B) {
 			b.SetBytes(int64(len(response)))
 			b.ResetTimer()
 			b.RunParallel(func(pb *testing.PB) {
-				request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+				request := httptest.NewRequestWithContext(b.Context(), http.MethodPost, "/v1/chat/completions", nil)
 				request.Header.Set("Content-Type", "application/json")
 				request.Header.Set("Authorization", accountJWT(`{"sub":"benchmark","iat":1}`))
 				writer := &pipelineWriter{header: make(http.Header)}
@@ -146,7 +146,7 @@ func BenchmarkAccountIdentifier(b *testing.B) {
 		{"bearer", accountJWT(`{"sub":"benchmark","iss":"issuer","iat":1,"exp":9999999999,"roles":["user"]}`)},
 	} {
 		b.Run(tc.name, func(b *testing.B) {
-			request := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+			request := httptest.NewRequestWithContext(b.Context(), http.MethodGet, "/v1/models", nil)
 			request.Header.Set("Authorization", tc.authorization)
 			cfg := config.Account{Enabled: true, JWTClaim: "sub"}
 			b.ReportAllocs()

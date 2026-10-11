@@ -40,7 +40,7 @@ type routerProcess struct {
 	metricsURL string
 }
 
-func launchRouter(upstreamURL string, options routerOptions) *routerProcess {
+func launchRouter(ctx context.Context, upstreamURL string, options routerOptions) *routerProcess {
 	GinkgoHelper()
 	directory := GinkgoT().TempDir()
 	args := []string{"serve"}
@@ -50,7 +50,10 @@ func launchRouter(upstreamURL string, options routerOptions) *routerProcess {
 		args = append(args, "--config", path)
 	}
 	args = append(args, options.flags...)
-	command := exec.Command(binaryPath, args...)
+	// Preserve graceful subprocess cleanup after the spec context is canceled.
+	commandCtx, cancelCommand := context.WithCancel(context.WithoutCancel(ctx))
+	DeferCleanup(cancelCommand)
+	command := exec.CommandContext(commandCtx, binaryPath, args...)
 	command.Dir = directory
 	// Isolate every process from the developer's application configuration.
 	command.Env = slices.DeleteFunc(os.Environ(), func(value string) bool {
@@ -101,7 +104,7 @@ func launchRouter(upstreamURL string, options routerOptions) *routerProcess {
 
 func startRouter(ctx context.Context, upstreamURL string, options routerOptions) *routerProcess {
 	GinkgoHelper()
-	process := launchRouter(upstreamURL, options)
+	process := launchRouter(ctx, upstreamURL, options)
 	if address := options.env["TOKEN_ROUTER_SERVER_ADDRESS"]; address != "" && !strings.HasSuffix(address, ":0") {
 		process.url = "http://" + address
 	} else {
@@ -135,7 +138,7 @@ func startRouter(ctx context.Context, upstreamURL string, options routerOptions)
 
 func unusedAddress() string {
 	GinkgoHelper()
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	listener, err := (&net.ListenConfig{}).Listen(GinkgoT().Context(), "tcp", "127.0.0.1:0")
 	Expect(err).NotTo(HaveOccurred())
 	address := listener.Addr().String()
 	Expect(listener.Close()).To(Succeed())

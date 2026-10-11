@@ -40,7 +40,7 @@ func Load(options Options) (Config, error) {
 		}
 		path = "config.yaml"
 	}
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // The operator explicitly selects the configuration file path.
 	if err != nil && (explicit || !errors.Is(err, os.ErrNotExist)) {
 		return Config{}, errors.New("cannot read configuration file")
 	}

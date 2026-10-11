@@ -32,7 +32,7 @@ func TestResponseFlushingPolicy(t *testing.T) {
 			}
 			t.Cleanup(handler.CloseIdleConnections)
 			writer := &flushCountingWriter{header: make(http.Header)}
-			handler.ServeHTTP(writer, httptest.NewRequest(http.MethodGet, "/v1/models", nil))
+			handler.ServeHTTP(writer, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/models", nil))
 			if got := writer.flushes.Load() > 0; got != test.wantFlush {
 				t.Fatalf("flushed = %t, want %t", got, test.wantFlush)
 			}

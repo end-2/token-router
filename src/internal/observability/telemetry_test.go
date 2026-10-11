@@ -149,7 +149,7 @@ func TestTelemetryExportsCorrelatedSanitizedSignalsOnShutdown(t *testing.T) {
 		_, err = io.Copy(c.Response(), response.Body)
 		return err
 	})
-	request := httptest.NewRequest(http.MethodPost, "/v1/private-path?token=private-query", strings.NewReader("private-body"))
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/private-path?token=private-query", strings.NewReader("private-body"))
 	request.Header.Set("traceparent", "00-"+incomingTrace+"-"+incomingParent+"-01")
 	response := httptest.NewRecorder()
 	e.ServeHTTP(response, request)
@@ -295,7 +295,7 @@ func TestTelemetrySignalSelectionAndInstanceIsolation(t *testing.T) {
 			}
 			e := echo.New()
 			e.Use(telemetry.Middleware)
-			e.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("PRIVATE_METHOD", "/private-identifier", nil))
+			e.ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), "PRIVATE_METHOD", "/private-identifier", nil))
 			shutdownTelemetry(t, telemetry)
 			capture.mu.Lock()
 			defer capture.mu.Unlock()
@@ -340,7 +340,7 @@ func TestDisabledRequestTelemetryPreservesErrorHandling(t *testing.T) {
 			t.Cleanup(func() { shutdownTelemetry(t, telemetry) })
 			e := echo.New()
 			e.Use(telemetry.Middleware)
-			request := httptest.NewRequest(http.MethodGet, "/failure", nil)
+			request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/failure", nil)
 			e.GET("/failure", func(c *echo.Context) error {
 				if c.Request() != request {
 					t.Error("disabled telemetry replaced the request")
@@ -477,7 +477,7 @@ func TestUnsampledTransportPreservesPropagationAndResponse(t *testing.T) {
 			if failure {
 				response, transportErr = nil, io.ErrUnexpectedEOF
 			}
-			request := httptest.NewRequest(http.MethodPost, "http://upstream/v1/chat/completions", nil)
+			request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "http://upstream/v1/chat/completions", nil)
 			request.Header.Set("traceparent", "private-parent")
 			request.Header.Set("tracestate", "private-state")
 			transport := tracedTransport{
@@ -635,7 +635,7 @@ func TestTelemetryExportFailureIsStructuredAndFailsShutdown(t *testing.T) {
 	}
 	e := echo.New()
 	e.Use(telemetry.Middleware)
-	e.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/secret", nil))
+	e.ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/secret", nil))
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	if err := telemetry.Shutdown(ctx); err == nil {

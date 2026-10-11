@@ -32,7 +32,7 @@ var _ = Describe("policy configuration", func() {
 			options := routerOptions{env: environment, flags: []string{
 				"--admin-enabled", "--admin-address=127.0.0.1:0", "--policy-file", file, "--policy-watch-interval=10ms",
 			}}
-			process := launchRouter(first.URL, options)
+			process := launchRouter(ctx, first.URL, options)
 			Eventually(func() []string { return listenerAddresses(process.session.Err.Contents()) }, requestTimeout).Should(HaveLen(3))
 			addresses := listenerAddresses(process.session.Err.Contents())
 			publicURL, adminURL := "http://"+addresses[0], "http://"+addresses[1]
@@ -55,7 +55,7 @@ var _ = Describe("policy configuration", func() {
 
 			Expect(process.session.Command.Process.Signal(syscall.SIGTERM)).To(Succeed())
 			Eventually(process.session, requestTimeout).Should(gexec.Exit(0))
-			process = launchRouter(first.URL, options)
+			process = launchRouter(ctx, first.URL, options)
 			Eventually(func() []string { return listenerAddresses(process.session.Err.Contents()) }, requestTimeout).Should(HaveLen(3))
 			addresses = listenerAddresses(process.session.Err.Contents())
 			publicURL, adminURL = "http://"+addresses[0], "http://"+addresses[1]

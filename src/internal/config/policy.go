@@ -94,7 +94,7 @@ func (c PolicyConfig) MarshalJSON() ([]byte, error) {
 
 // ReadPolicyFile reads a bounded snapshot, following file and directory symlinks.
 func ReadPolicyFile(path string) ([]byte, error) {
-	f, err := os.Open(path)
+	f, err := os.Open(path) //nolint:gosec // The operator explicitly selects the configuration file path.
 	if err != nil {
 		return nil, errors.New("cannot read policy configuration file")
 	}

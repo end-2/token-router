@@ -54,7 +54,7 @@ func BenchmarkTelemetryMiddleware(b *testing.B) {
 			e := echo.New()
 			e.Use(telemetry.Middleware)
 			e.GET("/v1/*", func(c *echo.Context) error { return c.NoContent(http.StatusOK) })
-			request := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+			request := httptest.NewRequestWithContext(b.Context(), http.MethodGet, "/v1/models", nil)
 			response := httptest.NewRecorder()
 			b.ReportAllocs()
 			for b.Loop() {
@@ -111,7 +111,7 @@ func BenchmarkTracedTransport(b *testing.B) {
 					return &http.Response{StatusCode: http.StatusOK, Body: benchmarkBody{}}, nil
 				}),
 			}
-			request := httptest.NewRequest(http.MethodPost, "http://upstream/v1/chat/completions", nil)
+			request := httptest.NewRequestWithContext(b.Context(), http.MethodPost, "http://upstream/v1/chat/completions", nil)
 			request.Header.Set("Authorization", "Bearer benchmark-token")
 			b.ReportAllocs()
 			for b.Loop() {

@@ -36,7 +36,7 @@ func BenchmarkProxyForward(b *testing.B) {
 				b.Fatal(err)
 			}
 			b.Cleanup(handler.CloseIdleConnections)
-			request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+			request := httptest.NewRequestWithContext(b.Context(), http.MethodPost, "/v1/chat/completions", nil)
 			request.Header.Set("Authorization", "Bearer benchmark")
 			request.Header.Set("Content-Type", "application/json")
 			writer := &benchmarkResponseWriter{header: make(http.Header)}
@@ -67,7 +67,7 @@ func BenchmarkRouting(b *testing.B) {
 			if err != nil {
 				b.Fatal(err)
 			}
-			request := httptest.NewRequest(http.MethodPost, "http://api.example.com/v1/responses", nil)
+			request := httptest.NewRequestWithContext(b.Context(), http.MethodPost, "http://api.example.com/v1/responses", nil)
 			request.Header.Set("Content-Type", "application/json")
 			request.ContentLength = int64(len(test.payload))
 			reader := strings.NewReader(test.payload)

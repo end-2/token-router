@@ -232,11 +232,11 @@ func TestDistributedRestartsPreserveState(t *testing.T) {
 				stopDistributedNode(t, node)
 			}
 			for _, node := range nodes {
-				listener, err := net.Listen("tcp", node.cfg.Memory.Distributed.Address)
+				listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", node.cfg.Memory.Distributed.Address)
 				if err != nil {
 					t.Fatal(err)
 				}
-				node.server = &httptest.Server{Listener: listener, Config: &http.Server{}}
+				node.server = &httptest.Server{Listener: listener, Config: &http.Server{ReadHeaderTimeout: time.Second}}
 				startDistributedNode(t, node)
 			}
 			waitDistributedLeader(t, nodes)
@@ -265,7 +265,7 @@ func TestDistributedAdminAuthenticationAndValidation(t *testing.T) {
 		{"bad limits", "POST", "apply", `{"operation":"allow"}`, "test-cluster-secret", 503},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			r := httptest.NewRequest(tc.method, distributedPath+tc.path, strings.NewReader(tc.body))
+			r := httptest.NewRequestWithContext(t.Context(), tc.method, distributedPath+tc.path, strings.NewReader(tc.body))
 			r.Header.Set("Authorization", "Bearer "+tc.token)
 			r.Header.Set("X-Token-Router-Cluster", node.limiter.stream.cluster)
 			w := httptest.NewRecorder()

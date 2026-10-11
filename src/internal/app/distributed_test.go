@@ -14,7 +14,7 @@ import (
 func TestDistributedServerAdminAndAccounts(t *testing.T) {
 	address := func() string {
 		t.Helper()
-		listener, err := net.Listen("tcp", "127.0.0.1:0")
+		listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -24,7 +24,7 @@ func TestDistributedServerAdminAndAccounts(t *testing.T) {
 		}
 		return addr
 	}
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer upstream.Close()

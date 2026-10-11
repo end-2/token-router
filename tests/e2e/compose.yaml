@@ -1,0 +1,69 @@
+services:
+  redis:
+    image: redis:7.4.11-alpine3.21@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 1s
+      timeout: 1s
+      retries: 30
+      start_period: 1s
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.162.0@sha256:39923a8e431bd1f57be82411999d389fcfe40857492e4365456d97a4c1f74be6
+    command: ["--config=/etc/otel-collector/config.yaml"]
+    volumes:
+      - ../../deploy/components/otel-collector/config.yaml:/etc/otel-collector/config.yaml:ro
+    depends_on:
+      - tempo
+      - loki
+
+  prometheus:
+    image: prom/prometheus:v3.15.0@sha256:efd719c99d83b060d9daefdcf00360461adf279f45ef5391f8d111892118753e
+    command: ["--config.file=/etc/prometheus/config.yaml", "--storage.tsdb.path=/prometheus", "--storage.tsdb.retention.time=1h", "--enable-feature=exemplar-storage", "--log.format=json"]
+    volumes:
+      - ../../deploy/components/prometheus/config.yaml:/etc/prometheus/config.yaml:ro
+    tmpfs:
+      - /prometheus:uid=65534,gid=65534,mode=0770,size=256m
+
+  tempo:
+    image: grafana/tempo:2.10.8@sha256:f0561deb1c68ec44d6e6e7e4487f30106c4e5e768642077695b37958b105812a
+    command: ["-config.file=/etc/tempo/config.yaml"]
+    volumes:
+      - ../../deploy/components/tempo/config.yaml:/etc/tempo/config.yaml:ro
+    tmpfs:
+      - /var/tempo:uid=10001,gid=10001,mode=0770,size=256m
+
+  loki:
+    image: grafana/loki:3.7.8@sha256:1107dd5274e0ada47e42472b7a7e71f3b2a2fe878878108f3e2f9e51528f0193
+    command: ["-config.file=/etc/loki/config.yaml"]
+    volumes:
+      - ../../deploy/components/loki/config.yaml:/etc/loki/config.yaml:ro
+    tmpfs:
+      - /var/loki:uid=10001,gid=10001,mode=0770,size=256m
+
+  e2e:
+    build:
+      context: ../..
+      target: e2e
+    environment:
+      TOKEN_ROUTER_E2E_BINARY: /usr/local/bin/token-router
+      TOKEN_ROUTER_E2E_REDIS_ADDRESS: redis:6379
+      TOKEN_ROUTER_E2E_OTLP_ENDPOINT: http://otel-collector:4318
+      TOKEN_ROUTER_E2E_COLLECTOR_HEALTH_URL: http://otel-collector:13133
+      TOKEN_ROUTER_E2E_PROMETHEUS_URL: http://prometheus:9090
+      TOKEN_ROUTER_E2E_TEMPO_URL: http://tempo:3200
+      TOKEN_ROUTER_E2E_LOKI_URL: http://loki:3100
+    depends_on:
+      redis:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+      prometheus:
+        condition: service_started
+      tempo:
+        condition: service_started
+      loki:
+        condition: service_started
+    init: true
+

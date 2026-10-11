@@ -33,7 +33,9 @@ func (*fixedLimiter) Close() error { return nil }
 
 func (*fixedLimiter) RecordUsage(context.Context, int64) error { return nil }
 
-func testApplication(t *testing.T, upstream http.Handler, limiter bucket.Limiter, configure ...func(*config.Config)) *application {
+func (*fixedLimiter) Update(config.LimitValues) {}
+
+func testApplication(t *testing.T, upstream http.Handler, limiter bucket.Reconfigurable, configure ...func(*config.Config)) *application {
 	t.Helper()
 	u := httptest.NewServer(upstream)
 	t.Cleanup(u.Close)
@@ -53,7 +55,8 @@ func testApplication(t *testing.T, upstream http.Handler, limiter bucket.Limiter
 	if err != nil {
 		t.Fatal(err)
 	}
-	a.proxy, a.metrics = p, m
+	a.proxy, a.metrics = &proxyGeneration{handler: p}, m
+	a.current = cfg.Mutable()
 	a.ready.Store(true)
 	return a
 }

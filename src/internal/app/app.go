@@ -25,13 +25,19 @@ import (
 )
 
 type application struct {
-	cfg       config.Config
-	logger    *slog.Logger
-	limiter   bucket.Limiter
-	proxy     *proxy.Handler
-	metrics   *observability.Metrics
-	telemetry *observability.Telemetry
-	ready     atomic.Bool
+	cfg          config.Config
+	logger       *slog.Logger
+	limiter      bucket.Reconfigurable
+	proxy        *proxyGeneration
+	policyMu     sync.RWMutex
+	policyClosed bool
+	updateMu     sync.Mutex
+	current      config.PolicyConfig
+	fileDigest   [32]byte
+	fileSeen     bool
+	metrics      *observability.Metrics
+	telemetry    *observability.Telemetry
+	ready        atomic.Bool
 }
 
 // Run validates configuration, serves until cancellation and drains active requests.
@@ -56,13 +62,18 @@ func Run(ctx context.Context, cfg config.Config) (err error) {
 		return fmt.Errorf("initialize rate limiter: %w", err)
 	}
 	defer func() { err = errors.Join(err, limiter.Close()) }()
-	a := &application{cfg: cfg, logger: logger, limiter: limiter, telemetry: telemetry}
+	a := &application{cfg: cfg, logger: logger, limiter: limiter, telemetry: telemetry, current: cfg.Mutable()}
 	upstream, err := a.newProxy()
 	if err != nil {
 		return fmt.Errorf("initialize upstream: %w", err)
 	}
-	defer upstream.CloseIdleConnections()
-	a.proxy = upstream
+	a.proxy = &proxyGeneration{handler: upstream}
+	defer func() {
+		a.policyMu.Lock()
+		defer a.policyMu.Unlock()
+		a.policyClosed = true
+		a.proxy.retire()
+	}()
 	if cfg.Telemetry.Metrics.Enabled && cfg.Telemetry.Metrics.Prometheus.Enabled {
 		a.metrics, err = observability.New()
 		if err != nil {
@@ -73,14 +84,18 @@ func Run(ctx context.Context, cfg config.Config) (err error) {
 }
 
 func (a *application) newProxy() (*proxy.Handler, error) {
+	return a.newProxyFor(a.cfg.Mutable())
+}
+
+func (a *application) newProxyFor(cfg config.PolicyConfig) (*proxy.Handler, error) {
 	var options []proxy.Option
 	if a.telemetry != nil {
 		options = append(options, proxy.WithTransport(a.telemetry.Transport))
 	}
-	if a.cfg.RateLimit.Enabled && a.cfg.RateLimit.TokensPerSecond > 0 {
+	if a.cfg.RateLimit.Enabled && cfg.RateLimit.TokensPerSecond > 0 {
 		options = append(options, proxy.WithUsageRecorder(a.recordUsage))
 	}
-	return proxy.New(a.cfg.Upstream, a.logger, options...)
+	return proxy.New(cfg.Upstream, a.logger, options...)
 }
 
 func (a *application) recordUsage(ctx context.Context, tokens int64) {
@@ -119,7 +134,14 @@ func (a *application) forward(c *echo.Context) error {
 	if !a.ready.Load() {
 		return apiError(c, http.StatusServiceUnavailable, "server_unavailable", "Server is shutting down")
 	}
+	// Admission and proxy selection observe the same update. Streams release this
+	// lock before forwarding so that an open response cannot block configuration.
+	a.policyMu.RLock()
+	p := a.proxy
+	p.active.Add(1)
 	decision, err := a.limiter.Allow(c.Request().Context())
+	a.policyMu.RUnlock()
+	defer p.release()
 	if a.metrics != nil {
 		a.metrics.RecordLimit(decision.Allowed, err)
 	}
@@ -135,7 +157,7 @@ func (a *application) forward(c *echo.Context) error {
 		c.Response().Header().Set("Retry-After", strconv.Itoa(retry))
 		return apiError(c, http.StatusTooManyRequests, "rate_limit_exceeded", "Rate limit exceeded")
 	}
-	a.proxy.ServeHTTP(proxyResponseWriter{ResponseWriter: c.Response()}, c.Request())
+	p.handler.ServeHTTP(proxyResponseWriter{ResponseWriter: c.Response()}, c.Request())
 	return nil
 }
 
@@ -157,6 +179,16 @@ func (a *application) serve(ctx context.Context) error {
 		BaseContext:    func(net.Listener) context.Context { return requestCtx },
 		ErrorLog:       slog.NewLogLogger(a.logger.Handler(), slog.LevelError),
 	}}
+	if a.cfg.Admin.Enabled {
+		servers = append(servers, &http.Server{
+			Addr: a.cfg.Admin.Address, Handler: a.adminHandler(),
+			ReadHeaderTimeout: a.cfg.Server.ReadHeaderTimeout,
+			ReadTimeout:       10 * time.Second, WriteTimeout: 10 * time.Second,
+			IdleTimeout: a.cfg.Server.IdleTimeout, MaxHeaderBytes: a.cfg.Server.MaxHeaderBytes,
+			BaseContext: func(net.Listener) context.Context { return requestCtx },
+			ErrorLog:    slog.NewLogLogger(a.logger.Handler(), slog.LevelError),
+		})
+	}
 	if a.metrics != nil {
 		mux := http.NewServeMux()
 		mux.Handle(a.cfg.Telemetry.Metrics.Prometheus.Path, a.metrics.Handler())
@@ -181,6 +213,16 @@ func (a *application) serve(ctx context.Context) error {
 		}
 		listeners = append(listeners, listener)
 	}
+	watchCtx, stopWatch := context.WithCancel(ctx)
+	watchDone := make(chan struct{})
+	go func() {
+		defer close(watchDone)
+		a.watchPolicy(watchCtx)
+	}()
+	defer func() {
+		stopWatch()
+		<-watchDone
+	}()
 	return a.serveListeners(ctx, servers, listeners, cancelRequests)
 }
 
@@ -204,6 +246,9 @@ func (a *application) serveListeners(ctx context.Context, servers []*http.Server
 		}
 	}
 	a.ready.Store(false)
+	a.policyMu.Lock()
+	a.policyClosed = true
+	a.policyMu.Unlock()
 	a.logger.Info("shutting down HTTP listeners", "timeout", a.cfg.Server.ShutdownTimeout)
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), a.cfg.Server.ShutdownTimeout)
 	defer cancel()

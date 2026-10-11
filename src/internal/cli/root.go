@@ -55,7 +55,7 @@ func NewCommand(run func(context.Context, config.Config) error) *cobra.Command {
 		return run(cmd.Context(), cfg)
 	}
 	root.Args, root.RunE = noArgs, serve
-	root.AddCommand(&cobra.Command{Use: "serve", Short: "Start the proxy and metrics listeners", Args: noArgs, RunE: serve})
+	root.AddCommand(&cobra.Command{Use: "serve", Short: "Start the proxy, metrics and optional admin listeners", Args: noArgs, RunE: serve})
 	root.AddCommand(&cobra.Command{
 		Use: "validate", Short: "Validate configuration without starting listeners", Args: noArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {

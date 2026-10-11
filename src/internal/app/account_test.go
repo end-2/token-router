@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"token-router/src/internal/bucket"
+	"token-router/src/internal/bucket/backend"
 	"token-router/src/internal/config"
 )
 
@@ -73,7 +74,7 @@ func TestAccountLimitsAndPolicyUpdate(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.RateLimit.RequestsPerSecond, cfg.RateLimit.Burst = .001, 1
 	cfg.RateLimit.Account.Enabled = true
-	limiter, err := bucket.New(t.Context(), cfg.RateLimit)
+	limiter, err := backend.New(t.Context(), cfg.RateLimit)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +127,7 @@ func TestAccountUsageRetainsIdentityAcrossPolicyUpdate(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.RateLimit.Account.Enabled = true
 	cfg.RateLimit.TokensPerSecond, cfg.RateLimit.TokenBurst = .001, 1
-	limiter, err := bucket.New(t.Context(), cfg.RateLimit)
+	limiter, err := backend.New(t.Context(), cfg.RateLimit)
 	if err != nil {
 		t.Fatal(err)
 	}

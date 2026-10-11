@@ -16,12 +16,13 @@ import (
 	"github.com/alicebob/miniredis/v2"
 
 	"token-router/src/internal/bucket"
+	"token-router/src/internal/bucket/backend"
 	"token-router/src/internal/config"
 )
 
 func TestUpstreamUsageLimitsSubsequentRequests(t *testing.T) {
-	for _, backend := range []string{"memory", "redis"} {
-		t.Run(backend, func(t *testing.T) {
+	for _, backendName := range []string{"memory", "redis"} {
+		t.Run(backendName, func(t *testing.T) {
 			for _, test := range []struct {
 				name, contentType, body string
 				status                  int
@@ -39,15 +40,15 @@ func TestUpstreamUsageLimitsSubsequentRequests(t *testing.T) {
 			} {
 				t.Run(test.name, func(t *testing.T) {
 					cfg := config.Defaults()
-					cfg.RateLimit.Backend = backend
+					cfg.RateLimit.Backend = backendName
 					cfg.RateLimit.RequestsPerSecond = 0.001
 					cfg.RateLimit.Burst = 20
 					cfg.RateLimit.TokensPerSecond = 0.001
 					cfg.RateLimit.TokenBurst = 10
-					if backend == "redis" {
+					if backendName == "redis" {
 						cfg.RateLimit.Redis.Address = miniredis.RunT(t).Addr()
 					}
-					limiter, err := bucket.New(t.Context(), cfg.RateLimit)
+					limiter, err := backend.New(t.Context(), cfg.RateLimit)
 					if err != nil {
 						t.Fatal(err)
 					}

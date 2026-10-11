@@ -8,8 +8,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"token-router/src/internal/config"
 )
 
 func BenchmarkProxyForward(b *testing.B) {
@@ -46,61 +44,6 @@ func BenchmarkProxyForward(b *testing.B) {
 			for b.Loop() {
 				clear(writer.header)
 				handler.ServeHTTP(writer, request)
-			}
-		})
-	}
-}
-
-func BenchmarkRouting(b *testing.B) {
-	for _, test := range []struct {
-		name, payload string
-		routes        []config.UpstreamRoute
-	}{
-		{name: "Default"},
-		{name: "Host", routes: []config.UpstreamRoute{{Host: "api.example.com", BaseURLs: []string{"http://upstream.example"}}}},
-		{name: "Model64KiB", payload: `{"model":"chat","input":"` + strings.Repeat("x", 64<<10) + `"}`, routes: []config.UpstreamRoute{{Model: "chat", BaseURLs: []string{"http://upstream.example"}}}},
-	} {
-		b.Run(test.name, func(b *testing.B) {
-			cfg := upstreamConfig("http://upstream.example")
-			cfg.Routes = test.routes
-			routing, err := newRouter(cfg)
-			if err != nil {
-				b.Fatal(err)
-			}
-			request := httptest.NewRequestWithContext(b.Context(), http.MethodPost, "http://api.example.com/v1/responses", nil)
-			request.Header.Set("Content-Type", "application/json")
-			request.ContentLength = int64(len(test.payload))
-			reader := strings.NewReader(test.payload)
-			body := io.NopCloser(reader)
-			writer := httptest.NewRecorder()
-			b.ReportAllocs()
-			b.ResetTimer()
-			for b.Loop() {
-				reader.Reset(test.payload)
-				request.Body = body
-				if _, routeErr := routing.selectTarget(writer, request); routeErr != nil {
-					b.Fatal(routeErr)
-				}
-			}
-		})
-	}
-}
-
-func BenchmarkUsageEvents(b *testing.B) {
-	for _, test := range []struct{ name, payload string }{
-		{name: "Content", payload: "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\n"},
-		{name: "NullUsage", payload: "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}],\"usage\":null}\n\n"},
-		{name: "Usage", payload: "data: {\"usage\":{\"total_tokens\":12}}\n\n"},
-	} {
-		b.Run(test.name, func(b *testing.B) {
-			body := &usageBody{ctx: context.Background(), record: func(context.Context, int64) {}}
-			events := usageEvents{observe: body.observe}
-			payload := []byte(test.payload)
-			b.SetBytes(int64(len(payload)))
-			b.ReportAllocs()
-			b.ResetTimer()
-			for b.Loop() {
-				events.feed(payload)
 			}
 		})
 	}

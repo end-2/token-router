@@ -18,7 +18,7 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 
-	"token-router/src/internal/bucket"
+	"token-router/src/internal/bucket/backend"
 	"token-router/src/internal/config"
 )
 
@@ -29,7 +29,7 @@ func policyApplication(t *testing.T, upstream http.Handler, configure ...func(*c
 	for _, f := range configure {
 		f(&cfg)
 	}
-	l, err := bucket.New(t.Context(), cfg.RateLimit)
+	l, err := backend.New(t.Context(), cfg.RateLimit)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"token-router/src/internal/config"
+	"token-router/src/internal/proxy/routing"
 )
 
 // Handler owns the upstream connection pool and selects configured routing destinations.
@@ -24,7 +25,7 @@ type Handler struct {
 	transport      *http.Transport
 	logger         *slog.Logger
 	requestTimeout time.Duration
-	router         *router
+	router         *routing.Router
 }
 
 // Option customizes proxy construction without changing connection pool ownership.
@@ -39,7 +40,7 @@ func WithTransport(wrap func(http.RoundTripper) http.RoundTripper) Option {
 
 // New constructs a handler without opening upstream connections.
 func New(cfg config.Upstream, logger *slog.Logger, options ...Option) (*Handler, error) {
-	routing, err := newRouter(cfg)
+	routing, err := routing.New(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -138,13 +139,13 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		defer cancel()
 		request = request.WithContext(ctx)
 	}
-	target, routeErr := handler.router.selectTarget(writer, request)
+	target, routeErr := handler.router.SelectTarget(writer, request)
 	if routeErr != nil {
 		if err := request.Context().Err(); err != nil {
 			handler.handleError(writer, request, err)
 			return
 		}
-		handler.writeError(writer, routeErr.status, routeErr.code, routeErr.message)
+		handler.writeError(writer, routeErr.Status, routeErr.Code, routeErr.Message)
 		return
 	}
 	request = request.WithContext(context.WithValue(request.Context(), upstreamTargetKey{}, target))

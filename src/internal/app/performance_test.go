@@ -8,9 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"token-router/src/internal/bucket"
+	"token-router/src/internal/bucket/backend"
 	"token-router/src/internal/config"
-	"token-router/src/internal/observability"
+	"token-router/src/internal/observability/prometheus"
+	"token-router/src/internal/observability/telemetry"
 	"token-router/src/internal/proxy"
 )
 
@@ -44,7 +45,7 @@ func BenchmarkProxyPipeline(b *testing.B) {
 				response = strings.Repeat("data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\n", 32) +
 					"data: {\"choices\":[],\"usage\":{\"total_tokens\":10}}\n\ndata: [DONE]\n\n"
 			}
-			telemetry, err := observability.NewTelemetry(b.Context(), cfg.Telemetry, io.Discard)
+			telemetry, err := telemetry.New(b.Context(), cfg.Telemetry, io.Discard)
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -53,7 +54,7 @@ func BenchmarkProxyPipeline(b *testing.B) {
 					b.Error(err)
 				}
 			})
-			limiter, err := bucket.New(b.Context(), cfg.RateLimit)
+			limiter, err := backend.New(b.Context(), cfg.RateLimit)
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -64,7 +65,7 @@ func BenchmarkProxyPipeline(b *testing.B) {
 			})
 			a := &application{cfg: cfg, current: cfg.Mutable(), logger: telemetry.Logger(), limiter: limiter, telemetry: telemetry}
 			if cfg.Telemetry.Metrics.Enabled {
-				a.metrics, err = observability.New()
+				a.metrics, err = prometheus.New()
 				if err != nil {
 					b.Fatal(err)
 				}

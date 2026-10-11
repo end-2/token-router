@@ -19,8 +19,10 @@ import (
 	"github.com/labstack/echo/v5/middleware"
 
 	"token-router/src/internal/bucket"
+	"token-router/src/internal/bucket/backend"
 	"token-router/src/internal/config"
-	"token-router/src/internal/observability"
+	"token-router/src/internal/observability/prometheus"
+	"token-router/src/internal/observability/telemetry"
 	"token-router/src/internal/proxy"
 )
 
@@ -35,8 +37,8 @@ type application struct {
 	current      config.PolicyConfig
 	fileDigest   [32]byte
 	fileSeen     bool
-	metrics      *observability.Metrics
-	telemetry    *observability.Telemetry
+	metrics      *prometheus.Metrics
+	telemetry    *telemetry.Telemetry
 	ready        atomic.Bool
 }
 
@@ -45,7 +47,7 @@ func Run(ctx context.Context, cfg config.Config) (err error) {
 	if err := cfg.Validate(); err != nil {
 		return fmt.Errorf("validate configuration: %w", err)
 	}
-	telemetry, err := observability.NewTelemetry(ctx, cfg.Telemetry, os.Stderr)
+	telemetry, err := telemetry.New(ctx, cfg.Telemetry, os.Stderr)
 	if err != nil {
 		return fmt.Errorf("initialize telemetry: %w", err)
 	}
@@ -57,7 +59,7 @@ func Run(ctx context.Context, cfg config.Config) (err error) {
 		}
 	}()
 	logger := telemetry.Logger()
-	limiter, err := bucket.New(ctx, cfg.RateLimit)
+	limiter, err := backend.New(ctx, cfg.RateLimit)
 	if err != nil {
 		return fmt.Errorf("initialize rate limiter: %w", err)
 	}
@@ -75,7 +77,7 @@ func Run(ctx context.Context, cfg config.Config) (err error) {
 		a.proxy.retire()
 	}()
 	if cfg.Telemetry.Metrics.Enabled && cfg.Telemetry.Metrics.Prometheus.Enabled {
-		a.metrics, err = observability.New()
+		a.metrics, err = prometheus.New()
 		if err != nil {
 			return fmt.Errorf("initialize metrics: %w", err)
 		}

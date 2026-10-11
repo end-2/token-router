@@ -1,0 +1,101 @@
+package redis
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"token-router/src/internal/bucket"
+)
+
+func TestRedisIntegrationSharedAtomicBucket(t *testing.T) {
+	address := os.Getenv("TOKEN_ROUTER_TEST_REDIS_ADDR")
+	if address == "" {
+		t.Skip("set TOKEN_ROUTER_TEST_REDIS_ADDR to run against a Redis server")
+	}
+	cfg := redisConfig(address)
+	cfg.RequestsPerSecond = 0.1
+	cfg.Burst = 7
+	cfg.Redis.Key = fmt.Sprintf("token-router:test:%s:%d", t.Name(), time.Now().UnixNano())
+	first := redisForTest(t, cfg).(*Limiter)
+	second := redisForTest(t, cfg)
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		if err := first.client.Del(ctx, cfg.Redis.Key).Err(); err != nil {
+			t.Errorf("delete test bucket: %v", err)
+		}
+	})
+	limiters := []bucket.Limiter{first, second}
+	var allowed atomic.Int64
+	var wg sync.WaitGroup
+	for i := range 50 {
+		wg.Go(func() {
+			decision, err := limiters[i%len(limiters)].Allow(context.Background())
+			if err != nil {
+				t.Errorf("Allow: %v", err)
+				return
+			}
+			if decision.Allowed {
+				allowed.Add(1)
+			} else if decision.RetryAfter <= 0 || decision.RetryAfter > 10*time.Second {
+				t.Errorf("denied request retry duration: %v", decision.RetryAfter)
+			}
+		})
+	}
+	wg.Wait()
+	if got := allowed.Load(); got != int64(cfg.Burst) {
+		t.Fatalf("shared bucket allowed %d requests, want %d", got, cfg.Burst)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	ttl, err := first.client.PTTL(ctx, cfg.Redis.Key).Result()
+	if err != nil || ttl <= 0 || ttl > 70*time.Second {
+		t.Fatalf("bucket TTL=%v, error=%v", ttl, err)
+	}
+}
+
+func TestRedisIntegrationSharedTokenDebt(t *testing.T) {
+	address := os.Getenv("TOKEN_ROUTER_TEST_REDIS_ADDR")
+	if address == "" {
+		t.Skip("set TOKEN_ROUTER_TEST_REDIS_ADDR to run against a Redis server")
+	}
+	cfg := redisConfig(address)
+	cfg.TokensPerSecond, cfg.TokenBurst = 0.1, 2
+	cfg.Redis.Key = fmt.Sprintf("token-router:test:%s:%d", t.Name(), time.Now().UnixNano())
+	first := redisForTest(t, cfg).(*Limiter)
+	second := redisForTest(t, cfg)
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		if err := first.client.Del(ctx, cfg.Redis.Key).Err(); err != nil {
+			t.Errorf("delete test bucket: %v", err)
+		}
+	})
+	limiters := []bucket.Limiter{first, second}
+	var wg sync.WaitGroup
+	for i := range 30 {
+		wg.Go(func() {
+			if err := limiters[i%len(limiters)].RecordUsage(context.Background(), 1); err != nil {
+				t.Errorf("RecordUsage: %v", err)
+			}
+		})
+	}
+	wg.Wait()
+	for _, l := range limiters {
+		decision, err := l.Allow(context.Background())
+		if err != nil || decision.Allowed || decision.RetryAfter < 4*time.Minute || decision.RetryAfter > 290*time.Second {
+			t.Fatalf("shared token debt Allow = %+v, %v", decision, err)
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	ttl, err := first.client.PTTL(ctx, cfg.Redis.Key).Result()
+	if err != nil || ttl < 4*time.Minute || ttl > 5*time.Minute {
+		t.Fatalf("token debt TTL=%v, error=%v", ttl, err)
+	}
+}

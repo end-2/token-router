@@ -15,7 +15,8 @@ func WithAccount(ctx context.Context, identifier string) context.Context {
 	return context.WithValue(ctx, accountContextKey{}, hex.EncodeToString(digest[:]))
 }
 
-func accountKey(ctx context.Context) string {
+// AccountKey returns the hashed identity, or an empty string for the global bucket.
+func AccountKey(ctx context.Context) string {
 	key, _ := ctx.Value(accountContextKey{}).(string)
 	return key
 }

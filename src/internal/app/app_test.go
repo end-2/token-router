@@ -15,7 +15,7 @@ import (
 
 	"token-router/src/internal/bucket"
 	"token-router/src/internal/config"
-	"token-router/src/internal/observability"
+	"token-router/src/internal/observability/prometheus"
 )
 
 type fixedLimiter struct {
@@ -51,7 +51,7 @@ func testApplication(t *testing.T, upstream http.Handler, limiter bucket.Reconfi
 		t.Fatal(err)
 	}
 	t.Cleanup(p.CloseIdleConnections)
-	m, err := observability.New()
+	m, err := prometheus.New()
 	if err != nil {
 		t.Fatal(err)
 	}

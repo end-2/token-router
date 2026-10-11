@@ -144,7 +144,7 @@ var _ = Describe("the running proxy", func() {
 		retry, err := strconv.Atoi(response.Header.Get("Retry-After"))
 		Expect(err).NotTo(HaveOccurred())
 		Expect(retry).To(BeNumerically(">", 0))
-		Expect(readBody(response)).To(MatchJSON(`{"error":{"type":"rate_limit_exceeded","code":"rate_limit_exceeded","message":"Request rate limit exceeded"}}`))
+		Expect(readBody(response)).To(MatchJSON(`{"error":{"type":"rate_limit_exceeded","code":"rate_limit_exceeded","message":"Rate limit exceeded"}}`))
 		Expect(forwarded.Load()).To(Equal(int64(1)))
 	}, SpecTimeout(15*time.Second))
 

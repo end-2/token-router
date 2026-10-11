@@ -56,12 +56,13 @@ func Run(ctx context.Context, cfg config.Config) (err error) {
 		return fmt.Errorf("initialize rate limiter: %w", err)
 	}
 	defer func() { err = errors.Join(err, limiter.Close()) }()
-	upstream, err := proxy.New(cfg.Upstream, logger, proxy.WithTransport(telemetry.Transport))
+	a := &application{cfg: cfg, logger: logger, limiter: limiter, telemetry: telemetry}
+	upstream, err := a.newProxy()
 	if err != nil {
 		return fmt.Errorf("initialize upstream: %w", err)
 	}
 	defer upstream.CloseIdleConnections()
-	a := &application{cfg: cfg, logger: logger, limiter: limiter, proxy: upstream, telemetry: telemetry}
+	a.proxy = upstream
 	if cfg.Metrics.Enabled {
 		a.metrics, err = observability.New()
 		if err != nil {
@@ -69,6 +70,25 @@ func Run(ctx context.Context, cfg config.Config) (err error) {
 		}
 	}
 	return a.serve(ctx)
+}
+
+func (a *application) newProxy() (*proxy.Handler, error) {
+	var options []proxy.Option
+	if a.telemetry != nil {
+		options = append(options, proxy.WithTransport(a.telemetry.Transport))
+	}
+	if a.cfg.RateLimit.Enabled && a.cfg.RateLimit.TokensPerSecond > 0 {
+		options = append(options, proxy.WithUsageRecorder(a.recordUsage))
+	}
+	return proxy.New(a.cfg.Upstream, a.logger, options...)
+}
+
+func (a *application) recordUsage(ctx context.Context, tokens int64) {
+	// Confirmed upstream usage still counts after a client disconnect or timeout.
+	// The Redis backend bounds this detached operation with its command timeout.
+	if err := a.limiter.RecordUsage(context.WithoutCancel(ctx), tokens); err != nil {
+		a.logger.WarnContext(ctx, "token usage could not be recorded")
+	}
 }
 
 func (a *application) handler() http.Handler {
@@ -113,7 +133,7 @@ func (a *application) forward(c *echo.Context) error {
 	if !decision.Allowed {
 		retry := max(1, int(math.Ceil(decision.RetryAfter.Seconds())))
 		c.Response().Header().Set("Retry-After", strconv.Itoa(retry))
-		return apiError(c, http.StatusTooManyRequests, "rate_limit_exceeded", "Request rate limit exceeded")
+		return apiError(c, http.StatusTooManyRequests, "rate_limit_exceeded", "Rate limit exceeded")
 	}
 	a.proxy.ServeHTTP(proxyResponseWriter{ResponseWriter: c.Response()}, c.Request())
 	return nil

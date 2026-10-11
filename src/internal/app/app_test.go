@@ -16,7 +16,6 @@ import (
 	"token-router/src/internal/bucket"
 	"token-router/src/internal/config"
 	"token-router/src/internal/observability"
-	"token-router/src/internal/proxy"
 )
 
 type fixedLimiter struct {
@@ -32,14 +31,20 @@ func (l *fixedLimiter) Allow(context.Context) (bucket.Decision, error) {
 
 func (*fixedLimiter) Close() error { return nil }
 
-func testApplication(t *testing.T, upstream http.Handler, limiter bucket.Limiter) *application {
+func (*fixedLimiter) RecordUsage(context.Context, int64) error { return nil }
+
+func testApplication(t *testing.T, upstream http.Handler, limiter bucket.Limiter, configure ...func(*config.Config)) *application {
 	t.Helper()
 	u := httptest.NewServer(upstream)
 	t.Cleanup(u.Close)
 	cfg := config.Defaults()
+	for _, apply := range configure {
+		apply(&cfg)
+	}
 	cfg.Upstream.BaseURL = u.URL
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	p, err := proxy.New(cfg.Upstream, logger)
+	a := &application{cfg: cfg, logger: logger, limiter: limiter}
+	p, err := a.newProxy()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +53,7 @@ func testApplication(t *testing.T, upstream http.Handler, limiter bucket.Limiter
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := &application{cfg: cfg, logger: logger, proxy: p, limiter: limiter, metrics: m}
+	a.proxy, a.metrics = p, m
 	a.ready.Store(true)
 	return a
 }

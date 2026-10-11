@@ -1,7 +1,9 @@
 upstream:
-  base_urls:
-    - "https://api.openai.com"
-  routes: []
+  routes:
+    - host: "*"
+      model: "*"
+      base_urls:
+        - "https://api.openai.com"
   max_routing_body_bytes: 8388608
   api_key: ""
   organization: ""

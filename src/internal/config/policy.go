@@ -47,7 +47,6 @@ func (c Config) PolicyDefaults() PolicyConfig {
 
 // Clone detaches route and destination slices from an existing snapshot.
 func (c PolicyConfig) Clone() PolicyConfig {
-	c.Upstream.BaseURLs = slices.Clone(c.Upstream.BaseURLs)
 	c.Upstream.Routes = slices.Clone(c.Upstream.Routes)
 	for i := range c.Upstream.Routes {
 		c.Upstream.Routes[i].BaseURLs = slices.Clone(c.Upstream.Routes[i].BaseURLs)

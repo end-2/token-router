@@ -15,7 +15,7 @@ func TestPolicyFileLoadAndPrecedence(t *testing.T) {
 	main := filepath.Join(dir, "config.yaml")
 	file := filepath.Join(dir, "policy.yaml")
 	writeConfig(t, main, "policy:\n  file: policy.yaml\nadmin:\n  enabled: true\nrate_limit:\n  backend: redis\n")
-	writeConfig(t, file, "upstream:\n  base_urls: ['localhost:9000']\nrate_limit:\n  burst: 7\n")
+	writeConfig(t, file, "upstream:\n  routes: [{host: '*', model: '*', base_urls: ['localhost:9000']}]\nrate_limit:\n  burst: 7\n")
 	cfg, err := Load(Options{Path: main, LookupEnv: lookup(map[string]string{
 		"TOKEN_ROUTER_RATE_LIMIT_BURST": "50", "TOKEN_ROUTER_UPSTREAM_API_KEY": "startup-secret",
 	}), Overrides: map[string]string{"rate_limit.burst": "60"}})
@@ -23,7 +23,7 @@ func TestPolicyFileLoadAndPrecedence(t *testing.T) {
 		t.Fatal(err)
 	}
 	if cfg.Policy.File != file || cfg.RateLimit.Burst != 7 || cfg.RateLimit.Backend != "redis" ||
-		cfg.Upstream.BaseURLs[0] != "localhost:9000" || cfg.Upstream.APIKey != "startup-secret" || !cfg.Admin.Enabled {
+		cfg.Upstream.Routes[0].BaseURLs[0] != "localhost:9000" || cfg.Upstream.APIKey != "startup-secret" || !cfg.Admin.Enabled {
 		t.Fatal("policy file did not merge with startup settings")
 	}
 	if cfg.PolicyDefaults().RateLimit.Burst != 60 {
@@ -42,7 +42,7 @@ func TestPolicyDecodeRejectsStaticAndInvalidSettings(t *testing.T) {
 		"rate_limit: {backend: redis}", "rate_limit: {enabled: false}",
 		"rate_limit: {strategy: memory}", "rate_limit: {redis: {address: 'localhost:6379'}}",
 		"server: {address: ':9099'}", "admin: {enabled: true}", "policy: {file: other.yaml}",
-		"upstream: {api_key: secret, typo: secret}", "upstream: {base_urls: []}",
+		"upstream: {api_key: secret, typo: secret}", "upstream: {routes: []}", "upstream: {base_urls: [localhost:9000]}",
 		"upstream: {dial_timeout: 1s}", "upstream: {transport: {dial_timeout: 1s}}",
 		"transport: {dial_timeout: 1s}", "transport: {}", "rate_limit: {burst: 0}",
 		"rate_limit: {tokens_per_second: 2}", "rate_limit: {requests_per_second: .nan}",
@@ -69,6 +69,12 @@ func TestPolicyJSONRoundTripAndIndependentSnapshots(t *testing.T) {
 	cfg := Defaults()
 	cfg.Upstream.Routes = []UpstreamRoute{{Host: "api.example.com", BaseURLs: []string{"localhost:8000"}}}
 	current := cfg.Mutable()
+	cloned := current.Clone()
+	cloned.Upstream.Routes[0].BaseURLs[0] = "localhost:9999"
+	cloned.Upstream.Routes[0].Host = "changed.example.com"
+	if current.Upstream.Routes[0].BaseURLs[0] != "localhost:8000" || current.Upstream.Routes[0].Host != "api.example.com" {
+		t.Fatal("cloned routes share destination or condition storage")
+	}
 	data, err := json.Marshal(current)
 	if err != nil {
 		t.Fatal(err)
@@ -84,8 +90,8 @@ func TestPolicyJSONRoundTripAndIndependentSnapshots(t *testing.T) {
 	if err != nil || next.Upstream.RequestTimeout != 2*time.Second || next.Upstream.Routes[0].Host != "" {
 		t.Fatalf("array replacement or duration failed: %v", err)
 	}
-	next.Upstream.BaseURLs[0] = "localhost:9999"
-	if current.Upstream.BaseURLs[0] != cfg.Upstream.BaseURLs[0] || current.Upstream.Routes[0].Host != "api.example.com" {
+	next.Upstream.Routes[0].BaseURLs[0] = "localhost:9999"
+	if current.Upstream.Routes[0].BaseURLs[0] != cfg.Upstream.Routes[0].BaseURLs[0] || current.Upstream.Routes[0].Host != "api.example.com" {
 		t.Fatal("update mutated active snapshot")
 	}
 }

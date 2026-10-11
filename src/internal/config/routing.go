@@ -10,7 +10,7 @@ import (
 	"unicode"
 )
 
-// UpstreamRoute matches Host and the top-level JSON model, with empty conditions matching any value.
+// UpstreamRoute matches Host and the top-level JSON model; "*" and empty conditions match any value.
 type UpstreamRoute struct {
 	Host     string   `yaml:"host" json:"host"`
 	Model    string   `yaml:"model" json:"model"`
@@ -43,21 +43,18 @@ func ParseUpstreamURL(raw string) (*url.URL, error) {
 
 // ValidateRouting checks route conditions, destination lists, and the body inspection limit.
 func (c Upstream) ValidateRouting() error {
-	if len(c.BaseURLs) == 0 && len(c.Routes) == 0 {
-		return errors.New("upstream requires at least one destination")
+	if len(c.Routes) == 0 {
+		return errors.New("upstream.routes must not be empty")
 	}
 	if c.MaxRoutingBodyBytes <= 0 {
 		return errors.New("upstream.max_routing_body_bytes must be positive")
 	}
-	if err := validateBaseURLs("upstream.base_urls", c.BaseURLs); err != nil {
-		return err
-	}
 	for i, route := range c.Routes {
 		key := fmt.Sprintf("upstream.routes[%d]", i)
-		if route.Host != "" {
+		if route.Host != "" && route.Host != "*" {
 			u, err := ParseUpstreamURL("http://" + route.Host)
 			if err != nil || u.Path != "" || strings.TrimSuffix(u.Hostname(), ".") == "" {
-				return fmt.Errorf("%s.host must be a hostname or IP address with an optional port", key)
+				return fmt.Errorf("%s.host must be * or a hostname or IP address with an optional port", key)
 			}
 		}
 		if strings.ContainsFunc(route.Model, unicode.IsControl) {

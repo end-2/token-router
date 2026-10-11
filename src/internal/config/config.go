@@ -48,7 +48,6 @@ type Server struct {
 
 // Upstream configures routing, authentication, and the overall request timeout.
 type Upstream struct {
-	BaseURLs            []string        `yaml:"base_urls"`
 	Routes              []UpstreamRoute `yaml:"routes"`
 	MaxRoutingBodyBytes int             `yaml:"max_routing_body_bytes"`
 	APIKey              string          `yaml:"api_key"`
@@ -141,8 +140,8 @@ func Defaults() Config {
 			MaxHeaderBytes: 1 << 20,
 		},
 		Upstream: Upstream{
-			BaseURLs: []string{"https://api.openai.com"},
-			Routes:   []UpstreamRoute{}, MaxRoutingBodyBytes: 8 << 20,
+			Routes:              []UpstreamRoute{{Host: "*", Model: "*", BaseURLs: []string{"https://api.openai.com"}}},
+			MaxRoutingBodyBytes: 8 << 20,
 		},
 		Transport: defaultTransport(),
 		RateLimit: RateLimit{

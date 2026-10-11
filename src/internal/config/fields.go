@@ -53,7 +53,6 @@ func fields(c *Config) []field {
 		{"server.idle_timeout", "Keep-alive connection idle timeout", &c.Server.IdleTimeout},
 		{"server.shutdown_timeout", "Maximum graceful shutdown time", &c.Server.ShutdownTimeout},
 		{"server.max_header_bytes", "Maximum request header size in bytes", &c.Server.MaxHeaderBytes},
-		{"upstream.base_urls", "Default upstream pool as a JSON or YAML array; empty disables the fallback", &c.Upstream.BaseURLs},
 		{"upstream.routes", "Host and model routing rules as a JSON or YAML array", &c.Upstream.Routes},
 		{"upstream.max_routing_body_bytes", "Maximum JSON request body size inspected for model routing", &c.Upstream.MaxRoutingBodyBytes},
 		{"upstream.api_key", "Upstream API key; empty forwards incoming Authorization", &c.Upstream.APIKey},

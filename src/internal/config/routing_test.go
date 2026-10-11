@@ -43,26 +43,28 @@ func TestLoadRoutingPrecedence(t *testing.T) {
 	for _, layer := range []string{"yaml", "environment", "flags"} {
 		t.Run(layer, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "config.yaml")
-			body := "upstream:\n  base_urls: [old:8000]\n  routes: [{model: old, base_urls: [old:8000]}]\n"
+			body := "upstream:\n  routes: [{model: old, base_urls: [old:8000]}]\n"
 			options := Options{Path: path, LookupEnv: lookup(nil)}
-			targets := `["127.0.0.1:9000","https://example.com/gateway"]`
-			routes := `[{"host":"API.example.com","model":"chat","base_urls":["127.0.0.1:9001","https://example.com"]}]`
+			routes := `[{"host":"*","model":"*","base_urls":["127.0.0.1:9000","https://example.com/gateway"]},{"host":"API.example.com","model":"chat","base_urls":["127.0.0.1:9001","https://example.com"]}]`
 			switch layer {
 			case "yaml":
-				body = "upstream:\n  base_urls: " + targets + "\n  routes: " + routes + "\n"
+				body = "upstream:\n  routes: " + routes + "\n"
 			case "environment":
-				options.LookupEnv = lookup(map[string]string{"TOKEN_ROUTER_UPSTREAM_BASE_URLS": targets, "TOKEN_ROUTER_UPSTREAM_ROUTES": routes})
+				options.LookupEnv = lookup(map[string]string{"TOKEN_ROUTER_UPSTREAM_ROUTES": routes})
 			case "flags":
-				options.LookupEnv = lookup(map[string]string{"TOKEN_ROUTER_UPSTREAM_BASE_URLS": `["env:8000"]`, "TOKEN_ROUTER_UPSTREAM_ROUTES": "[]"}) //nolint:gosec // These routing environment values are test fixtures, not credentials.
-				options.Overrides = map[string]string{"upstream.base_urls": targets, "upstream.routes": routes}
+				options.LookupEnv = lookup(map[string]string{"TOKEN_ROUTER_UPSTREAM_ROUTES": "[]"})
+				options.Overrides = map[string]string{"upstream.routes": routes}
 			}
 			writeConfig(t, path, body)
 			cfg, err := Load(options)
 			if err != nil {
 				t.Fatal(err)
 			}
-			wantRoutes := []UpstreamRoute{{Host: "API.example.com", Model: "chat", BaseURLs: []string{"127.0.0.1:9001", "https://example.com"}}}
-			if !reflect.DeepEqual(cfg.Upstream.Routes, wantRoutes) || !reflect.DeepEqual(cfg.Upstream.BaseURLs, []string{"127.0.0.1:9000", "https://example.com/gateway"}) {
+			wantRoutes := []UpstreamRoute{
+				{Host: "*", Model: "*", BaseURLs: []string{"127.0.0.1:9000", "https://example.com/gateway"}},
+				{Host: "API.example.com", Model: "chat", BaseURLs: []string{"127.0.0.1:9001", "https://example.com"}},
+			}
+			if !reflect.DeepEqual(cfg.Upstream.Routes, wantRoutes) {
 				t.Fatalf("routing arrays were not replaced: %+v", cfg.Upstream)
 			}
 		})
@@ -74,19 +76,20 @@ func TestRejectInvalidRoutingConfiguration(t *testing.T) {
 		{"empty route pool", "routes: [{model: chat, base_urls: []}]"},
 		{"missing route pool", "routes: [{host: example.com}]"},
 		{"unknown route field", "routes: [{models: secret-value, base_urls: [localhost:9000]}]"},
-		{"invalid default target", "base_urls: [secret-value]"},
+		{"removed default pool", "base_urls: [localhost:9000]"},
 		{"invalid route target", "routes: [{base_urls: ['ftp://secret-value']}]"},
 		{"host is URL", "routes: [{host: 'http://secret-value', base_urls: [localhost:9000]}]"},
 		{"host is path", "routes: [{host: 'secret-value/path', base_urls: [localhost:9000]}]"},
 		{"empty normalized host", "routes: [{host: '.', base_urls: [localhost:9000]}]"},
-		{"wildcard host", "routes: [{host: '*.example.com', base_urls: [localhost:9000]}]"},
+		{"partial wildcard host", "routes: [{host: '*.example.com', base_urls: [localhost:9000]}]"},
+		{"wildcard host with port", "routes: [{host: '*:8000', base_urls: [localhost:9000]}]"},
 		{"host port out of range", "routes: [{host: 'example.com:65536', base_urls: [localhost:9000]}]"},
 		{"model control", `routes: [{model: "secret-value\n", base_urls: [localhost:9000]}]`},
 		{"null array", "routes: null"},
-		{"null target", "base_urls: [null]"},
+		{"null target", "routes: [{host: '*', model: '*', base_urls: [null]}]"},
 		{"zero body limit", "max_routing_body_bytes: 0"},
 		{"negative body limit", "max_routing_body_bytes: -1"},
-		{"no destinations", "base_urls: []"},
+		{"no destinations", "routes: []"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "config.yaml")
@@ -108,11 +111,22 @@ func TestRejectInvalidRoutingConfiguration(t *testing.T) {
 }
 
 func TestRoutingWithSingleDefaultOrNoFallback(t *testing.T) {
-	for _, body := range []string{"base_urls: [localhost:9000]", "base_urls: []\n  routes: [{model: chat, base_urls: [localhost:9000]}]"} {
-		path := filepath.Join(t.TempDir(), "config.yaml")
-		writeConfig(t, path, "upstream:\n  "+body+"\n")
-		if _, err := Load(Options{Path: path, LookupEnv: lookup(nil)}); err != nil {
-			t.Fatal(err)
-		}
+	for _, body := range []string{
+		"routes: [{host: '*', model: '*', base_urls: [localhost:9000]}]",
+		"routes: [{host: '*', model: chat, base_urls: [localhost:9000]}]",
+		"routes: [{host: example.com, model: '*', base_urls: [localhost:9000]}]",
+		"routes: [{base_urls: [localhost:9000]}]",
+	} {
+		t.Run(body, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.yaml")
+			writeConfig(t, path, "upstream:\n  "+body+"\n")
+			cfg, err := Load(Options{Path: path, LookupEnv: lookup(nil)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(cfg.Upstream.Routes) != 1 || cfg.Upstream.Routes[0].BaseURLs[0] != "localhost:9000" {
+				t.Fatal("configured routes did not replace the built-in default route")
+			}
+		})
 	}
 }

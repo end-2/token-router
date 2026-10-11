@@ -1,0 +1,64 @@
+server:
+  address: "127.0.0.1:8080"
+  read_header_timeout: 10s
+  read_timeout: 0s
+  write_timeout: 0s
+  idle_timeout: 60s
+  shutdown_timeout: 30s
+  max_header_bytes: 1048576
+
+upstream:
+  base_url: "https://api.openai.com"
+  api_key: ""
+  organization: ""
+  project: ""
+  dial_timeout: 10s
+  response_header_timeout: 60s
+  idle_conn_timeout: 90s
+  request_timeout: 0s
+  max_idle_conns: 100
+  max_idle_conns_per_host: 100
+
+rate_limit:
+  enabled: true
+  backend: memory
+  requests_per_second: 10
+  burst: 20
+  redis:
+    address: "127.0.0.1:6379"
+    username: ""
+    password: ""
+    key: "token-router:rate-limit:global"
+    db: 0
+    dial_timeout: 5s
+    read_timeout: 3s
+    write_timeout: 3s
+    tls: false
+
+metrics:
+  enabled: true
+  address: "127.0.0.1:9090"
+  path: "/metrics"
+
+log:
+  level: info
+  format: json
+
+telemetry:
+  enabled: false
+  service_name: token-router
+  service_instance_id: ""
+  service_version: dev
+  environment: development
+  shutdown_timeout: 5s
+  otlp:
+    endpoint: "http://127.0.0.1:4318"
+    timeout: 5s
+  traces:
+    enabled: true
+    sample_ratio: 1
+  metrics:
+    enabled: true
+    export_interval: 15s
+  logs:
+    enabled: true

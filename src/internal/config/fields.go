@@ -1,0 +1,134 @@
+package config
+
+import (
+	"fmt"
+	"strconv"
+	"strings"
+	"time"
+)
+
+// Flag describes the CLI representation of one leaf configuration setting.
+type Flag struct {
+	Key     string
+	Name    string
+	Default string
+	Usage   string
+	Boolean bool
+}
+
+// Flags returns all settings using consistent YAML, environment, and CLI names.
+func Flags() []Flag {
+	cfg := Defaults()
+	settings := fields(&cfg)
+	flags := make([]Flag, 0, len(settings))
+	for _, field := range settings {
+		_, boolean := field.value.(*bool)
+		flags = append(flags, Flag{
+			Key: field.key, Name: strings.NewReplacer(".", "-", "_", "-").Replace(field.key),
+			Default: field.string(), Usage: field.usage + " (" + field.envName() + ")", Boolean: boolean,
+		})
+	}
+	return flags
+}
+
+type field struct {
+	key   string
+	usage string
+	value any
+}
+
+func fields(c *Config) []field {
+	return []field{
+		{"server.address", "Proxy listen address", &c.Server.Address},
+		{"server.read_header_timeout", "Maximum time to read request headers", &c.Server.ReadHeaderTimeout},
+		{"server.read_timeout", "Maximum time to read a request; 0 disables the timeout", &c.Server.ReadTimeout},
+		{"server.write_timeout", "Maximum response write time; 0 supports long streams", &c.Server.WriteTimeout},
+		{"server.idle_timeout", "Keep-alive connection idle timeout", &c.Server.IdleTimeout},
+		{"server.shutdown_timeout", "Maximum graceful shutdown time", &c.Server.ShutdownTimeout},
+		{"server.max_header_bytes", "Maximum request header size in bytes", &c.Server.MaxHeaderBytes},
+		{"upstream.base_url", "Upstream base URL, without the API version path", &c.Upstream.BaseURL},
+		{"upstream.api_key", "Upstream API key; empty forwards incoming Authorization", &c.Upstream.APIKey},
+		{"upstream.organization", "Upstream OpenAI organization header", &c.Upstream.Organization},
+		{"upstream.project", "Upstream OpenAI project header", &c.Upstream.Project},
+		{"upstream.dial_timeout", "Upstream connection dial timeout", &c.Upstream.DialTimeout},
+		{"upstream.response_header_timeout", "Maximum wait for upstream response headers", &c.Upstream.ResponseHeaderTimeout},
+		{"upstream.idle_conn_timeout", "Upstream idle connection timeout", &c.Upstream.IdleConnTimeout},
+		{"upstream.request_timeout", "Total upstream request timeout; 0 supports long streams", &c.Upstream.RequestTimeout},
+		{"upstream.max_idle_conns", "Maximum pooled idle upstream connections", &c.Upstream.MaxIdleConns},
+		{"upstream.max_idle_conns_per_host", "Maximum idle upstream connections per host", &c.Upstream.MaxIdleConnsPerHost},
+		{"rate_limit.enabled", "Enable the global request token bucket", &c.RateLimit.Enabled},
+		{"rate_limit.backend", "Token bucket backend: memory or redis", &c.RateLimit.Backend},
+		{"rate_limit.requests_per_second", "Global request token refill rate", &c.RateLimit.RequestsPerSecond},
+		{"rate_limit.burst", "Global request token bucket capacity", &c.RateLimit.Burst},
+		{"rate_limit.redis.address", "Redis host and port", &c.RateLimit.Redis.Address},
+		{"rate_limit.redis.username", "Redis ACL username", &c.RateLimit.Redis.Username},
+		{"rate_limit.redis.password", "Redis password", &c.RateLimit.Redis.Password},
+		{"rate_limit.redis.key", "Redis key shared by rate limit instances", &c.RateLimit.Redis.Key},
+		{"rate_limit.redis.db", "Redis logical database index", &c.RateLimit.Redis.DB},
+		{"rate_limit.redis.dial_timeout", "Redis connection dial timeout", &c.RateLimit.Redis.DialTimeout},
+		{"rate_limit.redis.read_timeout", "Redis command read timeout", &c.RateLimit.Redis.ReadTimeout},
+		{"rate_limit.redis.write_timeout", "Redis command write timeout", &c.RateLimit.Redis.WriteTimeout},
+		{"rate_limit.redis.tls", "Enable TLS for Redis", &c.RateLimit.Redis.TLS},
+		{"metrics.enabled", "Enable the separate Prometheus listener", &c.Metrics.Enabled},
+		{"metrics.address", "Prometheus listen address", &c.Metrics.Address},
+		{"metrics.path", "Prometheus scrape path", &c.Metrics.Path},
+		{"log.level", "Log level: debug, info, warn, or error", &c.Log.Level},
+		{"log.format", "Log format: json or text", &c.Log.Format},
+		{"telemetry.enabled", "Enable OpenTelemetry OTLP export", &c.Telemetry.Enabled},
+		{"telemetry.service_name", "OpenTelemetry service name", &c.Telemetry.ServiceName},
+		{"telemetry.service_instance_id", "OpenTelemetry service instance ID; empty generates a unique ID", &c.Telemetry.ServiceInstanceID},
+		{"telemetry.service_version", "OpenTelemetry service version", &c.Telemetry.ServiceVersion},
+		{"telemetry.environment", "OpenTelemetry deployment environment", &c.Telemetry.Environment},
+		{"telemetry.shutdown_timeout", "Maximum telemetry flush and shutdown time after HTTP draining", &c.Telemetry.ShutdownTimeout},
+		{"telemetry.otlp.endpoint", "OTLP HTTP base URL; signal paths are appended", &c.Telemetry.OTLP.Endpoint},
+		{"telemetry.otlp.timeout", "Timeout for each OTLP export", &c.Telemetry.OTLP.Timeout},
+		{"telemetry.traces.enabled", "Enable OTLP trace export", &c.Telemetry.Traces.Enabled},
+		{"telemetry.traces.sample_ratio", "Root trace sampling ratio between 0 and 1", &c.Telemetry.Traces.SampleRatio},
+		{"telemetry.metrics.enabled", "Enable OTLP metric export independently of Prometheus", &c.Telemetry.Metrics.Enabled},
+		{"telemetry.metrics.export_interval", "Interval between OTLP metric exports", &c.Telemetry.Metrics.ExportInterval},
+		{"telemetry.logs.enabled", "Enable OTLP structured log export", &c.Telemetry.Logs.Enabled},
+	}
+}
+
+func (f field) envName() string {
+	return "TOKEN_ROUTER_" + strings.ToUpper(strings.ReplaceAll(f.key, ".", "_"))
+}
+
+func (f field) string() string {
+	switch value := f.value.(type) {
+	case *string:
+		return *value
+	case *bool:
+		return strconv.FormatBool(*value)
+	case *int:
+		return strconv.Itoa(*value)
+	case *float64:
+		return strconv.FormatFloat(*value, 'g', -1, 64)
+	case *time.Duration:
+		return value.String()
+	default:
+		return ""
+	}
+}
+
+func (f field) set(raw string) error {
+	var err error
+	switch value := f.value.(type) {
+	case *string:
+		*value = raw
+	case *bool:
+		*value, err = strconv.ParseBool(raw)
+	case *int:
+		*value, err = strconv.Atoi(raw)
+	case *float64:
+		*value, err = strconv.ParseFloat(raw, 64)
+	case *time.Duration:
+		*value, err = time.ParseDuration(raw)
+	default:
+		return fmt.Errorf("unsupported configuration field type")
+	}
+	if err != nil {
+		return fmt.Errorf("invalid value for %s", f.key)
+	}
+	return nil
+}

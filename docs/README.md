@@ -17,4 +17,4 @@
 
 ## 설정
 
-- [애플리케이션 설정](reference/configuration.md): YAML 계층, 환경 변수와 CLI 우선순위, timeout과 인증 설정
+- [애플리케이션 설정](reference/configuration.md): YAML 계층, 환경 변수와 CLI 우선순위, timeout, 인증, 요청 수와 토큰 사용량 제한

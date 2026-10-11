@@ -2,7 +2,7 @@
 
 AI Token usage를 추적, 관찰, 제한할 수 있도록 제공하는 프레임워크
 
-`src/`에는 Echo 기반 OpenAI API 프록시 서버가 있다. YAML, 환경 변수와 CLI 인자로 upstream과 요청 수 제한 전략을 설정하고, Prometheus 메트릭을 별도 포트에서 제공한다. 현재 제한 단위는 요청 수이며 모델의 입력 또는 출력 토큰 사용량 집계는 구현하지 않는다.
+`src/`에는 Echo 기반 OpenAI API 프록시 서버가 있다. YAML, 환경 변수와 CLI 인자로 upstream, 요청 수와 모델 토큰 사용량 제한을 설정하고, Prometheus 메트릭을 별도 포트에서 제공한다. 토큰 제한은 선택적으로 활성화하며 OpenAI 형식의 JSON과 SSE 응답에서 받은 `usage`를 사용한다. 사용량은 응답을 받은 뒤 반영하므로 진행 중인 요청은 한도를 초과할 수 있다. 설정과 스트리밍 조건은 [요청 수와 토큰 사용량 제한](docs/reference/configuration.md#요청-수와-토큰-사용량-제한)에 있다.
 
 JSON 로그와 OpenTelemetry의 metrics, logs, traces를 지원한다. OTLP HTTP로 Collector에 전송하고, 배포 컴포넌트의 Prometheus, Loki, Tempo와 Grafana에서 조회할 수 있다.
 

@@ -21,7 +21,7 @@ CLI 기본값은 YAML 또는 환경 변수 값을 덮어쓰지 않는다. 명시
 | --- | --- |
 | `server` | API 리스너 주소, HTTP timeout, 헤더 크기, 종료 대기 시간 |
 | `upstream` | 고정 목적지 URL, 인증 헤더, 연결 풀과 upstream timeout |
-| `rate_limit` | 활성화 여부, `memory` 또는 `redis` 전략, 초당 요청 수와 burst |
+| `rate_limit` | 활성화 여부, `memory` 또는 `redis` 전략, 요청 수와 토큰 사용량의 초당 보충량과 burst |
 | `rate_limit.redis` | Redis 주소, 인증, DB, 공용 key, TLS와 I/O timeout |
 | `metrics` | Prometheus 활성화 여부, 별도 리스너 주소와 경로 |
 | `log` | `json` 또는 `text` 출력, `debug`, `info`, `warn`, `error` 레벨 |
@@ -39,6 +39,8 @@ CLI 기본값은 YAML 또는 환경 변수 값을 덮어쓰지 않는다. 명시
 | `upstream.base_url` | `TOKEN_ROUTER_UPSTREAM_BASE_URL` | `--upstream-base-url` |
 | `upstream.api_key` | `TOKEN_ROUTER_UPSTREAM_API_KEY` | `--upstream-api-key` |
 | `rate_limit.backend` | `TOKEN_ROUTER_RATE_LIMIT_BACKEND` | `--rate-limit-backend` |
+| `rate_limit.tokens_per_second` | `TOKEN_ROUTER_RATE_LIMIT_TOKENS_PER_SECOND` | `--rate-limit-tokens-per-second` |
+| `rate_limit.token_burst` | `TOKEN_ROUTER_RATE_LIMIT_TOKEN_BURST` | `--rate-limit-token-burst` |
 | `rate_limit.redis.address` | `TOKEN_ROUTER_RATE_LIMIT_REDIS_ADDRESS` | `--rate-limit-redis-address` |
 | `metrics.enabled` | `TOKEN_ROUTER_METRICS_ENABLED` | `--metrics-enabled=false` |
 | `telemetry.enabled` | `TOKEN_ROUTER_TELEMETRY_ENABLED` | `--telemetry-enabled` |
@@ -94,8 +96,56 @@ HTTP 요청 drain 이후 `telemetry.shutdown_timeout`까지 export를 마무리�
 
 JSON 로그, trace 연결과 수집 구성은 [OpenTelemetry 관측 구성](../operations/observability.md)을 참고한다.
 
-## 요청 수 제한
+## 요청 수와 토큰 사용량 제한
 
-버킷은 요청을 허용할 때마다 한 단위를 소비한다. `requests_per_second`는 초당 보충량, `burst`는 최대 용량이다. 제한이 활성화되어 있으면 두 값은 양수여야 한다. 보충량에는 `NaN`과 무한대를 사용할 수 없으며 전체 버킷 보충 시간은 Go `time.Duration`으로 표현할 수 있어야 한다. 시작 시 버킷은 가득 차 있다. 제한을 넘으면 대기열 없이 `429`와 초 단위의 `Retry-After`를 반환한다. health, readiness와 메트릭은 버킷을 소비하지 않는다.
+요청 수 버킷은 요청을 허용할 때마다 한 단위를 소비한다. `rate_limit.requests_per_second`는 초당 보충량, `rate_limit.burst`는 최대 요청 수다. `rate_limit.enabled=true`이면 두 값은 양수여야 한다.
 
-`memory`는 프로세스마다 독립적이다. `redis`는 같은 DB와 key를 사용하는 프로세스끼리 공유하며 Redis 서버 시간을 사용한다. Redis key는 버킷을 완전히 채울 수 있는 유휴 시간이 지난 뒤 만료된다. `rate_limit.enabled=false`이면 Redis 연결 없이 제한을 비활성화한다. backend 선택과 유효 설정은 시작할 때 결정한다.
+토큰 사용량 버킷은 `rate_limit.tokens_per_second`와 `rate_limit.token_burst`로 설정한다. 기본값은 모두 `0`이며 요청 수만 제한한다. 토큰 제한을 사용하려면 초당 보충량인 `rate_limit.tokens_per_second`와 최대 토큰 수인 `rate_limit.token_burst`를 모두 양수로 설정한다. 한 값만 `0`으로 설정할 수 없다. burst는 정수이며 보충량은 소수도 허용한다. 보충량에는 `NaN`과 무한대를 사용할 수 없으며 활성 버킷의 전체 보충 시간은 Go `time.Duration`으로 표현할 수 있어야 한다.
+
+다음 설정은 요청을 초당 10개씩 보충하고 최대 20개를 허용하며, 모델 토큰은 초당 1,000개씩 보충하고 최대 60,000개를 누적한다.
+
+```yaml
+rate_limit:
+  enabled: true
+  backend: memory
+  requests_per_second: 10
+  burst: 20
+  tokens_per_second: 1000
+  token_burst: 60000
+```
+
+버킷은 가득 찬 상태에서 시작한다. 요청 수 잔액이 1 이상이고, 활성화된 토큰 사용량 잔액도 1 이상일 때 요청을 허용한다. 한쪽이 부족하면 요청 수를 차감하지 않고 `429`와 초 단위의 `Retry-After`를 반환한다. `Retry-After`는 두 잔액이 모두 회복되는 데 필요한 대기 시간을 올림한 값이며 Go `time.Duration`의 최대 범위로 제한한다. 대기열은 없으며 health, readiness와 메트릭은 제한을 소비하지 않는다.
+
+토큰은 요청을 허용할 때 미리 추정하거나 예약하지 않고 upstream 응답의 사용량을 확인한 뒤 차감한다. 사용량이 잔액이나 `rate_limit.token_burst`를 넘으면 음수 잔액으로 기록하며, 초당 보충으로 잔액이 1 이상 회복될 때까지 다음 요청을 차단한다. 이미 허용된 요청과 동시에 진행 중인 스트림은 계속 처리하므로 이 설정은 진행 중인 요청까지 포함한 엄격한 토큰 상한이 아니다. 예를 들어 잔액이 60,000일 때 허용한 요청에서 70,000 토큰을 사용하면 다음 요청은 10,001 토큰이 보충될 때까지 거부된다.
+
+### OpenAI 응답의 사용량
+
+토큰 제한이 활성화되면 다음 경로의 성공한 `POST` 응답(HTTP `2xx`)에서 사용량을 읽는다. 경로는 `upstream.base_url`의 base path를 붙이기 전 수신한 요청을 기준으로 판단한다.
+
+| API | 집계 경로 |
+| --- | --- |
+| Chat Completions와 Completions | `/v1/chat/completions`, `/v1/completions` |
+| Responses | `/v1/responses`, `/v1/responses/compact` |
+| Embeddings | `/v1/embeddings` |
+| Images | `/v1/images/generations`, `/v1/images/edits`, `/v1/images/variations` |
+| Audio | `/v1/audio/speech`, `/v1/audio/transcriptions`, `/v1/audio/translations` |
+
+저장된 응답을 조회하는 `GET`, Chat Completions의 메타데이터 수정 `POST`와 목록에 없는 경로는 집계하지 않는다. 지원 경로에서도 다음 토큰 사용량 형식이 있어야 집계하며 오디오 재생 시간이나 이미지 개수 등의 값을 토큰 수로 환산하지 않는다.
+
+- JSON 응답의 유효한 `usage.total_tokens`를 우선 사용한다. 이 필드가 없거나 유효하지 않으면 `usage.prompt_tokens`와 `usage.completion_tokens`, 또는 `usage.input_tokens`와 `usage.output_tokens`의 유효한 합을 사용한다. 토큰 수는 음수가 아닌 `int64` 범위의 JSON 정수여야 한다.
+- Chat Completions SSE는 사용량 청크의 `usage`를 읽는다. 클라이언트가 요청에 `"stream_options": {"include_usage": true}`를 넣어야 OpenAI가 사용량 청크를 보낸다. 프록시는 요청 본문을 변경하거나 이 설정을 자동으로 추가하지 않는다. [OpenAI Chat Completions 스트리밍 참조](https://developers.openai.com/api/reference/resources/chat/subresources/completions/streaming-events)를 참고한다.
+- Responses SSE는 `response.completed`, `response.incomplete`, `response.failed` 종료 이벤트의 `response.usage`를 읽는다. 응답에 사용량이 포함된 경우에만 반영한다. [OpenAI Responses 스트리밍 참조](https://developers.openai.com/api/reference/resources/responses/streaming-events)를 참고한다.
+
+한 응답에서 여러 사용량 청크를 받으면 누적 토큰 수가 증가한 차이만 반영해 중복 집계를 피한다. 누락되거나 유효하지 않은 사용량은 추정하지 않는다. 스트림이 중단되면 중단 전에 실제로 수신한 유효한 사용량만 반영되며, 최종 사용량 청크를 받지 못하면 토큰을 차감하지 못할 수 있다. 입력과 출력의 세부 토큰 통계는 별도 메트릭으로 내보내지 않는다.
+
+Responses의 비동기 실행에서 최초 `POST`가 사용량 없이 반환되고 이후 `GET` polling이나 재개한 스트림에서 사용량을 받는 경우에는 토큰을 집계하지 않는다. 요청을 넘어서 response ID를 추적하거나 사용량을 별도로 조회하지 않기 때문이다. [OpenAI background mode](https://developers.openai.com/api/docs/guides/background)의 이런 흐름에서는 요청 수 제한만 적용될 수 있다.
+
+사용량 관찰 대상 크기는 JSON 본문 또는 SSE 이벤트당 8 MiB로 제한하며 더 큰 본문이나 이벤트는 집계하지 않는다. JSON은 클라이언트에 본문 조각을 전달하면서 별도로 모은 복사본을 읽기 종료 또는 본문 닫기 시 해석한다. 전송이 중단되어도 이미 받은 내용이 완전하고 유효한 JSON이면 사용량을 반영하며, 불완전한 JSON은 반영하지 않는다. SSE는 이벤트별로 해석하며 큰 이벤트 이후의 이벤트는 계속 관찰한다. 사용량 관찰 시 지원 경로의 `POST`에 `Accept-Encoding: identity`를 요청하며, upstream이 압축 응답을 반환하면 본문을 그대로 전달하고 집계하지 않는다. 응답 본문과 SSE 전달 형식은 변경하지 않는다.
+
+### 저장소와 오류 처리
+
+`memory`는 프로세스마다 독립적이다. `redis`는 같은 DB와 `rate_limit.redis.key`를 사용하는 프로세스끼리 요청 수와 토큰 사용량을 공유하며 Redis 서버 시간을 사용한다. 공유하는 인스턴스는 같은 제한값을 설정해야 한다. Redis key는 음수 잔액을 포함해 모든 버킷을 완전히 채울 수 있는 유휴 시간이 지난 뒤 만료된다. 사용량 차감으로 보충 시간이 지원 가능한 기간을 넘으면 부채를 보존하기 위해 key를 만료시키지 않는다.
+
+요청 허용 판단 중 Redis 오류가 발생하면 `503`을 반환한다. 이미 시작한 응답에서 사용량을 기록하다 실패하면 응답을 변경하지 않고 경고 로그를 남긴다. 결과가 불명확한 차감을 중복 적용하지 않도록 자동으로 재시도하지 않으므로 저장소 오류 동안 사용량이 누락될 수 있다.
+
+`rate_limit.enabled=false`이면 Redis 연결과 사용량 관찰 없이 두 제한을 모두 비활성화한다. backend 선택과 유효 설정은 시작할 때 결정한다.

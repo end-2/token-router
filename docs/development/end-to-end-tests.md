@@ -16,7 +16,7 @@ make e2e
 
 | 서비스 | 역할 |
 | --- | --- |
-| Redis | 여러 프록시 프로세스가 공유하는 실제 request bucket |
+| Redis | 여러 프록시 프로세스가 공유하는 실제 요청 수와 토큰 사용량 버킷 |
 | OpenTelemetry Collector | 프록시의 OTLP/HTTP metrics, logs와 traces 수신, backend별 전달 |
 | Prometheus | Collector가 노출한 메트릭 scrape와 PromQL 조회 |
 | Tempo | trace 저장과 trace ID 조회 |
@@ -40,7 +40,7 @@ runner는 일반 빌드에서 생성한 실행 파일을 사용하고 Ginkgo 테
 
 ## 시나리오
 
-총 20개 시나리오를 실행한다.
+총 24개 시나리오를 실행한다.
 
 | 범위 | 검증 내용 |
 | --- | --- |
@@ -50,6 +50,7 @@ runner는 일반 빌드에서 생성한 실행 파일을 사용하고 Ginkgo 테
 | upstream timeout | 응답 헤더 대기 시간 초과 시 `504`와 `upstream_timeout` 오류, upstream 요청 취소 |
 | 메모리 버킷 | burst 소진 후 `429`와 `Retry-After`, 거절된 요청이 upstream에 전달되지 않는지 확인 |
 | Redis 공유 버킷 | 서버 프로세스 2개에 동시 요청 30개를 보내 공유 burst 5개만 허용하는지 확인 |
+| 토큰 사용량 제한 | memory와 Redis에서 JSON 및 SSE 응답의 사용량이 burst를 초과하면 후속 요청에 `429`와 `Retry-After`를 반환하고 upstream 전달을 차단하는지 확인. Redis는 서버 프로세스 2개가 사용량을 공유하는지도 확인 (4개 table entry) |
 | Redis 명령 실패 | 테스트 key의 타입 오류가 발생하면 `503`을 반환하고 upstream 요청을 차단하는지 확인 |
 | 잘못된 설정 | 알 수 없는 YAML 필드, 지원하지 않는 backend, `0s` shutdown timeout을 리스너 생성 전에 거절 (3개 table entry) |
 | SSE 취소 | 첫 이벤트를 받은 후 두 번째 이벤트를 생성해 점진적 전달을 확인하고 클라이언트 취소를 upstream에 전달 |
@@ -63,7 +64,7 @@ runner는 일반 빌드에서 생성한 실행 파일을 사용하고 Ginkgo 테
 | OTLP rate limit 메트릭 | 허용과 거절 counter 및 HTTP `429` counter를 Prometheus에서 확인 |
 | 종료 시 telemetry flush | SSE 응답을 종료할 때 최종 span, log와 export interval이 `1h`인 메트릭까지 backend에 전달되는지 확인 |
 
-HTTP와 설정 시나리오는 [`proxy_test.go`](../../tests/e2e/proxy_test.go), SSE와 종료 시나리오는 [`streaming_test.go`](../../tests/e2e/streaming_test.go), telemetry 시나리오는 [`telemetry_test.go`](../../tests/e2e/telemetry_test.go)에 있다. Backend 반영은 polling으로 확인하고, 비활성화된 signal은 Collector batch와 Prometheus scrape interval을 포함하는 시간 동안 데이터가 없는지 확인한다.
+HTTP와 설정 시나리오는 [`proxy_test.go`](../../tests/e2e/proxy_test.go), 토큰 사용량 제한은 [`token_usage_test.go`](../../tests/e2e/token_usage_test.go), SSE와 종료 시나리오는 [`streaming_test.go`](../../tests/e2e/streaming_test.go), telemetry 시나리오는 [`telemetry_test.go`](../../tests/e2e/telemetry_test.go)에 있다. Backend 반영은 polling으로 확인하고, 비활성화된 signal은 Collector batch와 Prometheus scrape interval을 포함하는 시간 동안 데이터가 없는지 확인한다.
 
 ## 호스트에서 실행
 

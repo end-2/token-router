@@ -54,7 +54,7 @@ make lint
 make e2e
 ```
 
-`make test`는 race detector를 포함한 일반 Go 테스트를 실행한다. 설정 계층, 메모리와 Redis 버킷, HTTP 프록시, SSE 전달, HTTP 상태 메트릭과 graceful shutdown을 검사한다. 일반 테스트는 로컬 테스트 upstream과 `miniredis`를 사용하므로 OpenAI API key나 외부 Redis 서버가 필요 없다.
+`make test`는 race detector를 포함한 일반 Go 테스트를 실행한다. 설정 계층, 메모리와 Redis의 요청 수 및 토큰 사용량 버킷, HTTP 프록시, JSON과 SSE의 사용량 집계, SSE 전달, HTTP 상태 메트릭과 graceful shutdown을 검사한다. 일반 테스트는 로컬 테스트 upstream과 `miniredis`를 사용하므로 OpenAI API key나 외부 Redis 서버가 필요 없다.
 
 [`streaming_body_test.go`](../../src/internal/proxy/streaming_body_test.go)는 upstream transport의 마지막 요청 본문 읽기를 지연시킨 상태에서 SSE 응답을 시작해 본문 읽기와 스트림 전달이 모두 완료되는지 확인한다.
 
@@ -91,7 +91,7 @@ go run ./src/cmd/token-router serve \
   --rate-limit-redis-address 127.0.0.1:16379
 ```
 
-Redis를 선택하면 시작 시 `PING`에 성공해야 HTTP 리스너가 열린다. 요청 처리 중 Redis에 접근할 수 없으면 `503`을 반환한다. Redis의 같은 DB와 `rate_limit.redis.key`를 사용하는 인스턴스는 요청 수 제한을 공유하므로 같은 rate와 burst를 설정한다.
+Redis를 선택하면 시작 시 `PING`에 성공해야 HTTP 리스너가 열린다. 요청 허용 판단 중 Redis에 접근할 수 없으면 `503`을 반환한다. Redis의 같은 DB와 `rate_limit.redis.key`를 사용하는 인스턴스는 요청 수와 토큰 사용량 제한을 공유하므로 같은 제한값을 설정한다. 토큰 제한 설정과 응답 수신 후 사용량 기록의 제약은 [요청 수와 토큰 사용량 제한](../reference/configuration.md#요청-수와-토큰-사용량-제한)에 있다.
 
 접근 가능한 테스트용 Redis에서 실제 Lua 동시성 테스트를 실행할 수 있다. 이 테스트는 고유 key를 만들고 종료 시 해당 key만 삭제한다.
 

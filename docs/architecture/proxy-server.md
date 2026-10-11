@@ -10,7 +10,7 @@ Go module은 저장소 루트에 있고 애플리케이션 코드는 `src/` 아�
 | [`src/internal/cli`](../../src/internal/cli/root.go) | Cobra 명령과 명시적 인자 수집 |
 | [`src/internal/config`](../../src/internal/config/config.go) | 설정 계층 병합, 타입 변환과 검증 |
 | [`src/internal/app`](../../src/internal/app/app.go) | 의존성 생성, Echo 라우팅과 리스너 수명 관리 |
-| [`src/internal/proxy`](../../src/internal/proxy/proxy.go) | 표준 `httputil.ReverseProxy`와 upstream 연결 풀 |
+| [`src/internal/proxy`](../../src/internal/proxy/proxy.go) | 표준 `httputil.ReverseProxy`, upstream 연결 풀과 OpenAI 응답 사용량 관찰 |
 | [`src/internal/bucket`](../../src/internal/bucket/bucket.go) | `Limiter` 인터페이스와 memory, Redis 구현 |
 | [`src/internal/observability`](../../src/internal/observability/metrics.go) | 인스턴스별 Prometheus registry, OpenTelemetry providers와 JSON 로그 |
 
@@ -18,7 +18,7 @@ Go module은 저장소 루트에 있고 애플리케이션 코드는 `src/` 아�
 
 ## HTTP 프록시
 
-Echo가 `/v1`과 `/v1/*`를 프록시로 연결한다. 메서드, 본문, query와 upstream 상태 코드를 전달한다. SSE는 전체 응답을 버퍼링하지 않고 flush하며 클라이언트 연결 종료는 upstream context에 전달된다. JSON API별 모델이나 응답 형식을 해석하지 않는다.
+Echo가 `/v1`과 `/v1/*`를 프록시로 연결한다. 메서드, 본문, query와 upstream 상태 코드를 전달한다. SSE는 전체 응답을 버퍼링하지 않고 flush하며 클라이언트 연결 종료는 upstream context에 전달된다. 토큰 제한이 활성화되면 지원하는 생성 경로의 성공한 `POST` JSON과 SSE 응답에서 OpenAI 형식의 `usage`를 읽고 사용량 기록 함수를 호출한다. 조회와 메타데이터 수정은 집계하지 않는다. 전달하는 요청과 응답 본문은 변경하지 않는다.
 
 [`proxy.Handler.ServeHTTP`](../../src/internal/proxy/proxy.go)는 HTTP/1.x에서 `http.ResponseController.EnableFullDuplex`를 사용해 요청 본문 읽기와 응답 쓰기를 함께 허용한다. upstream transport가 요청 본문을 읽는 동안 응답 flush가 입력 본문을 닫지 않도록 한다.
 
@@ -33,13 +33,16 @@ Echo가 `/v1`과 `/v1/*`를 프록시로 연결한다. 메서드, 본문, query�
 ```go
 type Limiter interface {
     Allow(context.Context) (Decision, error)
+    RecordUsage(context.Context, int64) error
     Close() error
 }
 ```
 
-`Decision`에는 허용 여부와 재시도 대기 시간이 있다. `bucket.New`가 설정에 따라 구현을 선택한다. memory는 `golang.org/x/time/rate`, Redis는 `go-redis`와 원자적인 Lua script를 사용한다. Redis mutation의 자동 재시도를 비활성화해 결과를 알 수 없는 요청의 중복 차감을 피한다.
+`Decision`에는 허용 여부와 재시도 대기 시간이 있다. `bucket.New`가 설정에 따라 구현을 선택한다. memory는 요청 수에 `golang.org/x/time/rate`를 사용하고 토큰 사용량 잔액을 별도로 관리하며, 같은 mutex 안에서 두 제한을 판단한다. Redis는 `go-redis`와 원자적인 Lua script를 사용한다. Redis mutation의 자동 재시도를 비활성화해 결과를 알 수 없는 요청의 중복 차감을 피한다.
 
-새로운 버킷 저장소를 추가할 때는 이 인터페이스를 구현하고 설정 검증과 factory의 분기를 추가한다. HTTP handler는 변경할 필요가 없다. 현재 모든 API 요청은 하나의 전역 버킷을 공유한다. 사용자별 제한과 OpenAI token usage 집계는 구현하지 않는다.
+`Allow`는 요청 수 잔액과 활성화된 토큰 사용량 잔액을 함께 확인하고, 허용할 때 요청 수만 한 단위 차감한다. `RecordUsage`는 응답에서 확인한 모델 토큰 수를 별도로 차감하며 음수 잔액을 허용한다. 사용량은 요청 전에 추정하거나 예약하지 않으므로 진행 중인 요청이 한도를 초과할 수 있다. 응답의 사용량 추출 규칙과 제약은 [요청 수와 토큰 사용량 제한](../reference/configuration.md#요청-수와-토큰-사용량-제한)에 있다.
+
+새로운 버킷 저장소를 추가할 때는 이 인터페이스를 구현하고 설정 검증과 factory의 분기를 추가한다. HTTP handler는 변경할 필요가 없다. 모든 API 요청은 전역 요청 수 버킷과 선택적인 토큰 사용량 버킷을 공유한다. 사용자별 제한은 구현하지 않는다.
 
 ## 메트릭과 상태 검사
 

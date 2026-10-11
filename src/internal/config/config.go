@@ -16,8 +16,6 @@ type Config struct {
 	Server    Server    `yaml:"server"`
 	Upstream  Upstream  `yaml:"upstream"`
 	RateLimit RateLimit `yaml:"rate_limit"`
-	Metrics   Metrics   `yaml:"metrics"`
-	Log       Log       `yaml:"log"`
 	Telemetry Telemetry `yaml:"telemetry"`
 }
 
@@ -70,22 +68,15 @@ type Redis struct {
 	TLS          bool          `yaml:"tls"`
 }
 
-// Metrics configures a separate Prometheus HTTP listener.
-type Metrics struct {
+// Prometheus configures a separate Prometheus HTTP listener.
+type Prometheus struct {
 	Enabled bool   `yaml:"enabled"`
 	Address string `yaml:"address"`
 	Path    string `yaml:"path"`
 }
 
-// Log configures structured application logging.
-type Log struct {
-	Level  string `yaml:"level"`
-	Format string `yaml:"format"`
-}
-
-// Telemetry configures application-scoped OpenTelemetry providers and OTLP export.
+// Telemetry configures application logging, Prometheus, and OpenTelemetry OTLP export.
 type Telemetry struct {
-	Enabled           bool             `yaml:"enabled"`
 	ServiceName       string           `yaml:"service_name"`
 	ServiceInstanceID string           `yaml:"service_instance_id"`
 	ServiceVersion    string           `yaml:"service_version"`
@@ -97,8 +88,9 @@ type Telemetry struct {
 	Logs              TelemetryLogs    `yaml:"logs"`
 }
 
-// OTLP configures the shared HTTP endpoint for all enabled telemetry signals.
+// OTLP controls export and the shared HTTP endpoint for enabled telemetry signals.
 type OTLP struct {
+	Enabled  bool          `yaml:"enabled"`
 	Endpoint string        `yaml:"endpoint"`
 	Timeout  time.Duration `yaml:"timeout"`
 }
@@ -109,15 +101,18 @@ type Traces struct {
 	SampleRatio float64 `yaml:"sample_ratio"`
 }
 
-// TelemetryMetrics configures periodic OTLP metric export independently of Prometheus.
+// TelemetryMetrics configures periodic OTLP metric export and a separate Prometheus listener.
 type TelemetryMetrics struct {
 	Enabled        bool          `yaml:"enabled"`
 	ExportInterval time.Duration `yaml:"export_interval"`
+	Prometheus     Prometheus    `yaml:"prometheus"`
 }
 
-// TelemetryLogs controls OTLP export of structured application logs.
+// TelemetryLogs configures local application logging and optional OTLP log export.
 type TelemetryLogs struct {
-	Enabled bool `yaml:"enabled"`
+	Enabled bool   `yaml:"enabled"`
+	Level   string `yaml:"level"`
+	Format  string `yaml:"format"`
 }
 
 // Defaults returns settings suitable for local development and streaming APIs.
@@ -140,15 +135,16 @@ func Defaults() Config {
 				DialTimeout: 5 * time.Second, ReadTimeout: 3 * time.Second, WriteTimeout: 3 * time.Second,
 			},
 		},
-		Metrics: Metrics{Enabled: true, Address: "127.0.0.1:9090", Path: "/metrics"},
-		Log:     Log{Level: "info", Format: "json"},
 		Telemetry: Telemetry{
 			ServiceName: "token-router", ServiceVersion: "dev", Environment: "development",
 			ShutdownTimeout: 5 * time.Second,
 			OTLP:            OTLP{Endpoint: "http://127.0.0.1:4318", Timeout: 5 * time.Second},
 			Traces:          Traces{Enabled: true, SampleRatio: 1},
-			Metrics:         TelemetryMetrics{Enabled: true, ExportInterval: 15 * time.Second},
-			Logs:            TelemetryLogs{Enabled: true},
+			Metrics: TelemetryMetrics{
+				Enabled: true, ExportInterval: 15 * time.Second,
+				Prometheus: Prometheus{Enabled: true, Address: "127.0.0.1:9090", Path: "/metrics"},
+			},
+			Logs: TelemetryLogs{Enabled: true, Level: "info", Format: "json"},
 		},
 	}
 }
@@ -223,23 +219,24 @@ func (c Config) Validate() error {
 			return fmt.Errorf("rate_limit.redis timeouts must be positive when the Redis backend is enabled")
 		}
 	}
-	if c.Metrics.Enabled {
-		if err := validateAddress("metrics.address", c.Metrics.Address); err != nil {
+	prometheus := c.Telemetry.Metrics.Prometheus
+	if c.Telemetry.Metrics.Enabled && prometheus.Enabled {
+		if err := validateAddress("telemetry.metrics.prometheus.address", prometheus.Address); err != nil {
 			return err
 		}
-		if c.Metrics.Address == c.Server.Address && !strings.HasSuffix(c.Server.Address, ":0") {
-			return fmt.Errorf("metrics.address must differ from server.address")
+		if prometheus.Address == c.Server.Address && !strings.HasSuffix(c.Server.Address, ":0") {
+			return fmt.Errorf("telemetry.metrics.prometheus.address must differ from server.address")
 		}
-		p, err := url.ParseRequestURI(c.Metrics.Path)
-		if err != nil || !strings.HasPrefix(c.Metrics.Path, "/") || p.Path != c.Metrics.Path || p.RawQuery != "" || strings.ContainsAny(c.Metrics.Path, "?#{}* \t\r\n") {
-			return fmt.Errorf("metrics.path must be an absolute URL path without query, fragment, or patterns")
+		p, err := url.ParseRequestURI(prometheus.Path)
+		if err != nil || !strings.HasPrefix(prometheus.Path, "/") || p.Path != prometheus.Path || p.RawQuery != "" || strings.ContainsAny(prometheus.Path, "?#{}* \t\r\n") {
+			return fmt.Errorf("telemetry.metrics.prometheus.path must be an absolute URL path without query, fragment, or patterns")
 		}
 	}
-	if c.Log.Level != "debug" && c.Log.Level != "info" && c.Log.Level != "warn" && c.Log.Level != "error" {
-		return fmt.Errorf("log.level must be debug, info, warn, or error")
+	if c.Telemetry.Logs.Level != "debug" && c.Telemetry.Logs.Level != "info" && c.Telemetry.Logs.Level != "warn" && c.Telemetry.Logs.Level != "error" {
+		return fmt.Errorf("telemetry.logs.level must be debug, info, warn, or error")
 	}
-	if c.Log.Format != "json" && c.Log.Format != "text" {
-		return fmt.Errorf("log.format must be json or text")
+	if c.Telemetry.Logs.Format != "json" && c.Telemetry.Logs.Format != "text" {
+		return fmt.Errorf("telemetry.logs.format must be json or text")
 	}
 	if err := c.Telemetry.validate(); err != nil {
 		return err
@@ -251,7 +248,7 @@ func (c Telemetry) validate() error {
 	if math.IsNaN(c.Traces.SampleRatio) || math.IsInf(c.Traces.SampleRatio, 0) || c.Traces.SampleRatio < 0 || c.Traces.SampleRatio > 1 {
 		return fmt.Errorf("telemetry.traces.sample_ratio must be finite and between 0 and 1")
 	}
-	if !c.Enabled {
+	if !c.OTLP.Enabled {
 		return nil
 	}
 	if strings.ContainsFunc(c.ServiceInstanceID, func(r rune) bool { return r < 32 || r == 127 }) {
@@ -271,7 +268,7 @@ func (c Telemetry) validate() error {
 		return fmt.Errorf("telemetry.otlp.endpoint must be an absolute HTTP or HTTPS URL without credentials, query, or fragment")
 	}
 	if c.OTLP.Timeout <= 0 || c.ShutdownTimeout <= 0 {
-		return fmt.Errorf("telemetry.otlp.timeout and telemetry.shutdown_timeout must be positive when telemetry is enabled")
+		return fmt.Errorf("telemetry.otlp.timeout and telemetry.shutdown_timeout must be positive when OTLP export is enabled")
 	}
 	if c.Metrics.Enabled && c.Metrics.ExportInterval <= 0 {
 		return fmt.Errorf("telemetry.metrics.export_interval must be positive when telemetry metrics are enabled")

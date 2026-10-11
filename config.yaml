@@ -37,23 +37,14 @@ rate_limit:
     write_timeout: 3s
     tls: false
 
-metrics:
-  enabled: true
-  address: "127.0.0.1:9090"
-  path: "/metrics"
-
-log:
-  level: info
-  format: json
-
 telemetry:
-  enabled: false
   service_name: token-router
   service_instance_id: ""
   service_version: dev
   environment: development
   shutdown_timeout: 5s
   otlp:
+    enabled: false
     endpoint: "http://127.0.0.1:4318"
     timeout: 5s
   traces:
@@ -62,5 +53,11 @@ telemetry:
   metrics:
     enabled: true
     export_interval: 15s
+    prometheus:
+      enabled: true
+      address: "127.0.0.1:9090"
+      path: "/metrics"
   logs:
     enabled: true
+    level: info
+    format: json

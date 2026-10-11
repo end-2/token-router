@@ -52,16 +52,16 @@ func TestLoadExplicitZeroValues(t *testing.T) {
 			options := Options{Path: path, LookupEnv: lookup(nil)}
 			switch layer {
 			case "yaml":
-				body = "metrics:\n  enabled: false\nrate_limit:\n  enabled: false\n  requests_per_second: 0\n  burst: 0\nserver:\n  write_timeout: 0s\nupstream:\n  api_key: ''\n"
+				body = "telemetry:\n  metrics:\n    prometheus:\n      enabled: false\nrate_limit:\n  enabled: false\n  requests_per_second: 0\n  burst: 0\nserver:\n  write_timeout: 0s\nupstream:\n  api_key: ''\n"
 			case "environment":
 				options.LookupEnv = lookup(map[string]string{
-					"TOKEN_ROUTER_METRICS_ENABLED": "false", "TOKEN_ROUTER_RATE_LIMIT_ENABLED": "false",
+					"TOKEN_ROUTER_TELEMETRY_METRICS_PROMETHEUS_ENABLED": "false", "TOKEN_ROUTER_RATE_LIMIT_ENABLED": "false",
 					"TOKEN_ROUTER_RATE_LIMIT_REQUESTS_PER_SECOND": "0", "TOKEN_ROUTER_RATE_LIMIT_BURST": "0",
 					"TOKEN_ROUTER_SERVER_WRITE_TIMEOUT": "0s", "TOKEN_ROUTER_UPSTREAM_API_KEY": "",
 				})
 			case "flags":
 				options.Overrides = map[string]string{
-					"metrics.enabled": "false", "rate_limit.enabled": "false", "rate_limit.requests_per_second": "0",
+					"telemetry.metrics.prometheus.enabled": "false", "rate_limit.enabled": "false", "rate_limit.requests_per_second": "0",
 					"rate_limit.burst": "0", "server.write_timeout": "0s", "upstream.api_key": "",
 				}
 			}
@@ -70,7 +70,7 @@ func TestLoadExplicitZeroValues(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if cfg.Metrics.Enabled || cfg.RateLimit.Enabled || cfg.RateLimit.RequestsPerSecond != 0 || cfg.RateLimit.Burst != 0 || cfg.Server.WriteTimeout != 0 || cfg.Upstream.APIKey != "" {
+			if cfg.Telemetry.Metrics.Prometheus.Enabled || cfg.RateLimit.Enabled || cfg.RateLimit.RequestsPerSecond != 0 || cfg.RateLimit.Burst != 0 || cfg.Server.WriteTimeout != 0 || cfg.Upstream.APIKey != "" {
 				t.Error("explicit false, zero, or empty value was overwritten")
 			}
 		})
@@ -119,12 +119,15 @@ func TestRejectInvalidYAML(t *testing.T) {
 		{"empty", ""}, {"malformed", "server: ["}, {"scalar", "secret-value"},
 		{"root null", "null"}, {"nested null", "server: null"}, {"leaf null", "upstream:\n  api_key: null"},
 		{"unknown field", "server:\n  adress: ':8080'"}, {"unknown section", "unknown: {}"},
-		{"duplicate field", "log:\n  level: info\n  level: error"},
-		{"second document", "server: {}\n---\nmetrics: {}"},
+		{"top-level metrics", "metrics:\n  enabled: false"},
+		{"top-level log", "log:\n  level: info"},
+		{"telemetry master switch", "telemetry:\n  enabled: false"},
+		{"duplicate field", "telemetry:\n  logs:\n    level: info\n    level: error"},
+		{"second document", "server: {}\n---\ntelemetry: {}"},
 		{"empty second document", "server: {}\n---\n"},
 		{"invalid duration", "server:\n  shutdown_timeout: secret-value"},
 		{"duration without units", "server:\n  shutdown_timeout: 30"},
-		{"invalid boolean", "metrics:\n  enabled: secret-value"},
+		{"invalid boolean", "telemetry:\n  metrics:\n    prometheus:\n      enabled: secret-value"},
 		{"secret with wrong type", "upstream:\n  api_key: [secret-value]"},
 	}
 	for _, test := range tests {
@@ -168,13 +171,13 @@ func TestValidate(t *testing.T) {
 		{"redis address", func(c *Config) { c.RateLimit.Backend = "redis"; c.RateLimit.Redis.Address = "invalid" }},
 		{"redis key", func(c *Config) { c.RateLimit.Backend = "redis"; c.RateLimit.Redis.Key = "" }},
 		{"redis db", func(c *Config) { c.RateLimit.Redis.DB = -1 }},
-		{"metrics address", func(c *Config) { c.Metrics.Address = "invalid" }},
-		{"shared address", func(c *Config) { c.Metrics.Address = c.Server.Address }},
-		{"metrics path", func(c *Config) { c.Metrics.Path = "metrics" }},
-		{"metrics query", func(c *Config) { c.Metrics.Path = "/metrics?secret-value" }},
-		{"metrics pattern", func(c *Config) { c.Metrics.Path = "/metrics/{rest...}" }},
-		{"log level", func(c *Config) { c.Log.Level = "secret-value" }},
-		{"log format", func(c *Config) { c.Log.Format = "secret-value" }},
+		{"metrics address", func(c *Config) { c.Telemetry.Metrics.Prometheus.Address = "invalid" }},
+		{"shared address", func(c *Config) { c.Telemetry.Metrics.Prometheus.Address = c.Server.Address }},
+		{"metrics path", func(c *Config) { c.Telemetry.Metrics.Prometheus.Path = "metrics" }},
+		{"metrics query", func(c *Config) { c.Telemetry.Metrics.Prometheus.Path = "/metrics?secret-value" }},
+		{"metrics pattern", func(c *Config) { c.Telemetry.Metrics.Prometheus.Path = "/metrics/{rest...}" }},
+		{"log level", func(c *Config) { c.Telemetry.Logs.Level = "secret-value" }},
+		{"log format", func(c *Config) { c.Telemetry.Logs.Format = "secret-value" }},
 	}
 	if err := Defaults().Validate(); err != nil {
 		t.Fatalf("defaults are invalid: %v", err)
@@ -256,7 +259,7 @@ func TestExampleConfigurationMatchesDefaults(t *testing.T) {
 func TestInvalidOverridesDoNotLeakValues(t *testing.T) {
 	for _, options := range []Options{
 		{LookupEnv: lookup(map[string]string{"TOKEN_ROUTER_RATE_LIMIT_BURST": "secret-value"})},
-		{LookupEnv: lookup(map[string]string{"TOKEN_ROUTER_METRICS_ENABLED": "secret-value"})},
+		{LookupEnv: lookup(map[string]string{"TOKEN_ROUTER_TELEMETRY_METRICS_PROMETHEUS_ENABLED": "secret-value"})},
 		{LookupEnv: lookup(nil), Overrides: map[string]string{"server.read_timeout": "secret-value"}},
 		{LookupEnv: lookup(nil), Overrides: map[string]string{"rate_limit.requests_per_second": "secret-value"}},
 		{LookupEnv: lookup(nil), Overrides: map[string]string{"secret-value": "secret-value"}},

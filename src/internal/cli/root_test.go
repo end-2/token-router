@@ -16,7 +16,7 @@ func TestServeCommands(t *testing.T) {
 	for _, command := range []string{"root", "serve"} {
 		t.Run(command, func(t *testing.T) {
 			isolatedEnvironment(t)
-			if err := os.WriteFile("config.yaml", []byte("server:\n  address: ':8101'\nmetrics:\n  enabled: true\n"), 0o600); err != nil {
+			if err := os.WriteFile("config.yaml", []byte("server:\n  address: ':8101'\ntelemetry:\n  metrics:\n    prometheus:\n      enabled: true\n"), 0o600); err != nil {
 				t.Fatal(err)
 			}
 			t.Setenv("TOKEN_ROUTER_SERVER_ADDRESS", ":8102")
@@ -29,12 +29,12 @@ func TestServeCommands(t *testing.T) {
 				if gotContext != ctx {
 					t.Error("command did not propagate its context")
 				}
-				if cfg.Server.Address != ":8103" || cfg.Metrics.Enabled || cfg.Server.WriteTimeout != 0 || cfg.Upstream.APIKey != "" {
+				if cfg.Server.Address != ":8103" || cfg.Telemetry.Metrics.Prometheus.Enabled || cfg.Server.WriteTimeout != 0 || cfg.Upstream.APIKey != "" {
 					t.Error("flags did not override YAML and environment settings")
 				}
 				return nil
 			})
-			args := []string{"--server-address=:8103", "--metrics-enabled=false", "--server-write-timeout=0s", "--upstream-api-key="}
+			args := []string{"--server-address=:8103", "--telemetry-metrics-prometheus-enabled=false", "--server-write-timeout=0s", "--upstream-api-key="}
 			if command == "serve" {
 				args = append([]string{"serve"}, args...)
 			}
@@ -52,9 +52,9 @@ func TestServeCommands(t *testing.T) {
 func TestUnchangedFlagsDoNotOverrideEnvironment(t *testing.T) {
 	isolatedEnvironment(t)
 	t.Setenv("TOKEN_ROUTER_SERVER_ADDRESS", ":8123")
-	t.Setenv("TOKEN_ROUTER_METRICS_ENABLED", "false")
+	t.Setenv("TOKEN_ROUTER_TELEMETRY_METRICS_PROMETHEUS_ENABLED", "false")
 	root := NewCommand(func(_ context.Context, cfg config.Config) error {
-		if cfg.Server.Address != ":8123" || cfg.Metrics.Enabled {
+		if cfg.Server.Address != ":8123" || cfg.Telemetry.Metrics.Prometheus.Enabled {
 			t.Error("unchanged flags overrode environment")
 		}
 		return nil
@@ -67,14 +67,14 @@ func TestUnchangedFlagsDoNotOverrideEnvironment(t *testing.T) {
 
 func TestBooleanFlagWithoutValue(t *testing.T) {
 	isolatedEnvironment(t)
-	t.Setenv("TOKEN_ROUTER_METRICS_ENABLED", "false")
+	t.Setenv("TOKEN_ROUTER_TELEMETRY_METRICS_PROMETHEUS_ENABLED", "false")
 	root := NewCommand(func(_ context.Context, cfg config.Config) error {
-		if !cfg.Metrics.Enabled {
+		if !cfg.Telemetry.Metrics.Prometheus.Enabled {
 			t.Error("boolean flag without value did not enable metrics")
 		}
 		return nil
 	})
-	root.SetArgs([]string{"--metrics-enabled"})
+	root.SetArgs([]string{"--telemetry-metrics-prometheus-enabled"})
 	if err := root.Execute(); err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +119,7 @@ func TestConfigFlagTakesPriorityOverEnvironment(t *testing.T) {
 func TestErrorsDoNotPrintConfigurationValues(t *testing.T) {
 	tests := [][]string{
 		{"--server-shutdown-timeout=secret-value"},
-		{"--metrics-enabled=secret-value"},
+		{"--telemetry-metrics-prometheus-enabled=secret-value"},
 		{"--rate-limit-burst=secret-value"},
 		{"--unknown=secret-value"},
 		{"--config=secret-value"},

@@ -173,7 +173,11 @@ func (l *redisLimiter) RecordUsage(ctx context.Context, tokens int64) error {
 func (l *redisLimiter) run(ctx context.Context, operation string, tokens int64) ([]int64, error) {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	return tokenScript.Run(ctx, l.client, []string{l.key}, l.rate, l.burst, l.ttl,
+	key := l.key
+	if account := accountKey(ctx); account != "" {
+		key += ":account:" + account
+	}
+	return tokenScript.Run(ctx, l.client, []string{key}, l.rate, l.burst, l.ttl,
 		l.usageRate, l.usageBurst, operation, tokens, math.MaxInt64/int64(time.Millisecond)).Int64Slice()
 }
 

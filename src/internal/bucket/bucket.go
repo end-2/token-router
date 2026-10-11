@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"net/http"
 	"sync/atomic"
 	"time"
 
@@ -42,8 +43,13 @@ type Reconfigurable interface {
 	Update(config.LimitValues)
 }
 
-// New selects a process-local memory bucket, a shared Redis bucket, or a disabled
-// limiter according to cfg. Redis connectivity is checked before returning.
+// AdminBackend exposes internal cluster routes on the separate admin listener.
+type AdminBackend interface {
+	RegisterAdmin(*http.ServeMux)
+}
+
+// New selects the configured backend or a disabled limiter. Redis connectivity
+// is checked here; distributed election starts when the admin listener serves.
 func New(ctx context.Context, cfg config.RateLimit) (Reconfigurable, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -67,6 +73,9 @@ func New(ctx context.Context, cfg config.RateLimit) (Reconfigurable, error) {
 	}
 	switch cfg.Backend {
 	case "memory":
+		if cfg.Memory.Distributed.Enabled {
+			return newDistributed(cfg)
+		}
 		return newMemory(cfg.RequestsPerSecond, cfg.Burst, cfg.TokensPerSecond, cfg.TokenBurst), nil
 	case "redis":
 		limiter, err := newRedis(ctx, cfg)

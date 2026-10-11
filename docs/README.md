@@ -22,7 +22,7 @@ Start with [Proxy server development and execution](development/proxy-server.md)
 
 ## Configuration
 
-- [Application configuration](reference/configuration.md): YAML layers, environment variable and CLI precedence, Host and model upstream routing, timeouts, authentication, request counts, and token usage limits
+- [Application configuration](reference/configuration.md): YAML layers, environment variable and CLI precedence, Host and model upstream routing, transport tuning, timeouts, authentication, request counts, and token usage limits
 
 ## History
 

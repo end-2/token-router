@@ -25,7 +25,8 @@ Fixed settings are in [`config.yaml`](../../config.yaml); upstream settings, rat
 | `server` | API listener address, HTTP timeouts, header size, and shutdown wait time |
 | `admin` | Optional dedicated admin API listener activation and address |
 | `policy` | Separate file for upstream settings, rate limit values, and account settings, plus the content check interval |
-| `upstream` (`policy.yaml`) | Default destinations and routing rules, authentication headers, shared connection pools, and upstream timeouts |
+| `upstream` (`policy.yaml`) | Default destinations and routing rules, authentication headers, and overall request timeout |
+| `transport` (`config.yaml`) | Shared upstream connection pools, TCP and TLS timeouts, HTTP/2 selection, and I/O buffers (requires restart) |
 | `rate_limit` (`config.yaml`) | Activation, `memory` or `redis` backend, distributed memory and Redis connections |
 | `rate_limit` (`policy.yaml`) | Per-second request and token refill rates, bursts, and account identification |
 | `rate_limit.memory.distributed` | Raft activation, local and peer `IP:admin-port`, persistent paths, internal authentication token, and timeout |
@@ -49,6 +50,9 @@ All leaf settings can be changed through environment variables and CLI arguments
 | `upstream.routes` | `TOKEN_ROUTER_UPSTREAM_ROUTES` | `--upstream-routes` |
 | `upstream.max_routing_body_bytes` | `TOKEN_ROUTER_UPSTREAM_MAX_ROUTING_BODY_BYTES` | `--upstream-max-routing-body-bytes` |
 | `upstream.api_key` | `TOKEN_ROUTER_UPSTREAM_API_KEY` | `--upstream-api-key` |
+| `transport.max_conns_per_host` | `TOKEN_ROUTER_TRANSPORT_MAX_CONNS_PER_HOST` | `--transport-max-conns-per-host` |
+| `transport.tls_handshake_timeout` | `TOKEN_ROUTER_TRANSPORT_TLS_HANDSHAKE_TIMEOUT` | `--transport-tls-handshake-timeout` |
+| `transport.force_attempt_http2` | `TOKEN_ROUTER_TRANSPORT_FORCE_ATTEMPT_HTTP2` | `--transport-force-attempt-http2=false` |
 | `rate_limit.backend` | `TOKEN_ROUTER_RATE_LIMIT_BACKEND` | `--rate-limit-backend` |
 | `rate_limit.tokens_per_second` | `TOKEN_ROUTER_RATE_LIMIT_TOKENS_PER_SECOND` | `--rate-limit-tokens-per-second` |
 | `rate_limit.token_burst` | `TOKEN_ROUTER_RATE_LIMIT_TOKEN_BURST` | `--rate-limit-token-burst` |
@@ -143,9 +147,47 @@ JSON bodies inspected for models must have no `Content-Encoding` or use `identit
 
 The incoming `/v1/...` path is appended to the selected destination URL's base path. When connecting to OpenAI, do not duplicate `/v1` in the base URL. For example, with base URL `http://localhost:9000/gateway`, `/v1/models` is forwarded as `/gateway/v1/models`. The forwarded `Host` is replaced with the selected destination's host and port.
 
-Destinations must be `http` or `https` URLs with a host, or `host:port` addresses, and cannot contain user information, queries, or fragments. Explicit ports range from 1 to 65535. `upstream.max_idle_conns` and `upstream.max_idle_conns_per_host` must be positive. All destinations share transport and connection pool settings.
+Destinations must be `http` or `https` URLs with a host, or `host:port` addresses, and cannot contain user information, queries, or fragments. Explicit ports range from 1 to 65535. All destinations share the startup [transport configuration](#upstream-transport).
 
 An empty `upstream.api_key` forwards the client's `Authorization`; a configured value replaces it with `Bearer <configured-key>`. Nonempty `upstream.organization` and `upstream.project` also override the corresponding OpenAI headers. These authentication settings apply to all routing destinations. Keys and passwords can be injected through environment variables; example YAML in the repository contains no actual values.
+
+## Upstream transport
+
+Configure outbound HTTP connections in the top-level `transport` section of [`config.yaml`](../../config.yaml). These settings apply to all upstream destinations and are fixed at startup. Changing them requires a process restart. Policy files and the admin API reject `transport`, including `upstream.transport`. A proxy recreated by a routing or authentication policy update uses the same startup transport settings.
+
+All transport durations, connection limits, and byte sizes must be nonnegative. Each option supports YAML, `TOKEN_ROUTER_TRANSPORT_*` environment variables, and `--transport-*` CLI flags. CLI flags override environment variables, which override main YAML. Transport options do not apply to Redis, distributed rate limit traffic, or telemetry exporters.
+
+| Key under `transport` | Default | Behavior and zero value |
+| --- | --- | --- |
+| `dial_timeout` | `10s` | TCP connection deadline, including name resolution. `0s` sets no dialer deadline; request cancellation and operating system limits still apply. |
+| `tcp_keep_alive` | `30s` | TCP keep-alive probe interval, subject to operating system support. `0s` disables probes. Separate from HTTP connection reuse. |
+| `tls_handshake_timeout` | `10s` | TLS handshake deadline, independent of TCP dialing. `0s` disables this deadline. |
+| `response_header_timeout` | `60s` | Wait for response headers after the entire request body is written. `0s` disables this deadline. Does not limit response body or SSE stream duration. |
+| `expect_continue_timeout` | `1s` | Wait for approval when sending `Expect: 100-continue`. `0s` sends the body immediately. |
+| `idle_conn_timeout` | `90s` | Idle pooled connection lifetime. `0s` disables idle expiry. |
+| `max_idle_conns` | `100` | Maximum idle connections across all hosts. `0` removes the total idle limit. |
+| `max_idle_conns_per_host` | `100` | Maximum idle connections retained per host. `0` selects Go's default of `2`. |
+| `max_conns_per_host` | `0` | Maximum dialing, active, and idle connections per host. New dials wait at the limit. `0` removes the limit. |
+| `read_buffer_size` | `0` | HTTP transport read buffer size in bytes. `0` selects Go's default of `4096`. |
+| `write_buffer_size` | `0` | HTTP transport write buffer size in bytes. `0` selects Go's default of `4096`. |
+| `max_response_header_bytes` | `0` | Upstream response header size limit in bytes. `0` selects Go's default of `10485760` (10 MiB). |
+| `disable_keep_alives` | `false` | `true` disables HTTP connection reuse. TCP keep-alive probes are configured separately. |
+| `force_attempt_http2` | `true` | Attempt HTTP/2 over TLS when supported by the upstream. `false` uses HTTP/1.1. Cleartext HTTP/2 is not enabled. |
+
+Size idle pools for destination count and observed connection reuse. `max_conns_per_host` can bound connections and cause requests to queue; it is not a request concurrency limit because HTTP/2 multiplexes streams. `upstream.request_timeout` and client cancellation also cover waiting for a connection. Larger buffers increase memory per connection and should be measured against the workload. Transport buffers do not change the proxy response copy buffer or SSE flushing policy.
+
+For example, the following startup overrides allow a larger idle pool and cap connections to each upstream host. Choose values based on measurements for the deployment.
+
+```sh
+go run ./src/cmd/token-router serve --config config.yaml \
+  --transport-max-idle-conns=512 \
+  --transport-max-idle-conns-per-host=128 \
+  --transport-max-conns-per-host=256
+```
+
+Connections always route directly to configured upstreams; `HTTP_PROXY` and related environment variables are not consulted. Automatic compression is disabled so the proxy preserves upstream response representation. These behaviors are not transport tuning options.
+
+Configuration must use `transport.dial_timeout`, `transport.response_header_timeout`, `transport.idle_conn_timeout`, `transport.max_idle_conns`, and `transport.max_idle_conns_per_host`. Their flat `upstream.*` forms are unsupported. The corresponding environment and CLI prefixes are `TOKEN_ROUTER_TRANSPORT_` and `--transport-`. Configure `transport.tls_handshake_timeout` separately when both TCP and TLS need a custom deadline. The overall request deadline remains `upstream.request_timeout` in policy configuration.
 
 ## Timeouts and streaming
 
@@ -156,10 +198,10 @@ Durations use Go duration strings such as `500ms`, `10s`, `2m`, and `0s`. Negati
 - `server.write_timeout`: time allowed to write responses. The default `0s` permits long SSE responses.
 - `server.idle_timeout`: time waiting for the next request on a client keep-alive connection.
 - `server.shutdown_timeout`: total wait for active requests during shutdown; must be positive.
-- `upstream.dial_timeout`: TCP connection and TLS handshake limit.
-- `upstream.response_header_timeout`: wait for upstream response headers.
+- `transport.dial_timeout` and `transport.tls_handshake_timeout`: separate TCP connection and TLS handshake limits.
+- `transport.response_header_timeout`: wait for upstream response headers after sending the request.
 - `upstream.request_timeout`: overall request limit including SSE streams. The default `0s` disables it.
-- `upstream.idle_conn_timeout`: upstream idle connection lifetime.
+- `transport.idle_conn_timeout`: upstream idle connection lifetime.
 - `rate_limit.redis.dial_timeout`, `read_timeout`, `write_timeout`: Redis connection and I/O limits. All must be positive for the Redis backend; each command also has a total limit equal to the maximum of these three values.
 
 Overall request timeouts also apply to SSE responses already started. After response headers have been sent, an error cannot change the HTTP status code, so the connection closes.

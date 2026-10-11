@@ -143,7 +143,7 @@ In containers, the executable receives signals as PID 1. Set Docker's stop timeo
 
 Enable OpenTelemetry export with `telemetry.otlp.enabled=true`. See [OpenTelemetry observability](../operations/observability.md) for execution examples and Collector connections.
 
-Main configuration and environment variables are read at startup. Upstream settings and rate limit values can change through watching the separate `policy.file` or using the dedicated admin API. See [Policy configuration and admin API](../operations/policy-configuration.md) for commands, file permissions, and API examples. Changes to the backend, distributed memory cluster, listeners, or telemetry require a process restart.
+Main configuration and environment variables are read at startup. Upstream routing, authentication, overall request timeouts, and rate limit values can change through watching the separate `policy.file` or using the dedicated admin API. See [Policy configuration and admin API](../operations/policy-configuration.md) for commands, file permissions, and API examples. Changes to transport tuning, the backend, distributed memory cluster, listeners, or telemetry require a process restart.
 
 ## Validating distributed memory and account limits
 

@@ -16,6 +16,8 @@ When model conditions apply to the request host, the JSON request body is read w
 
 `Forwarded` and `X-Forwarded-*` are removed, and process environment variables such as `HTTP_PROXY` do not alter destination routing. No application-level retries or redirect following are added. The standard `http.Transport` may retry replayable requests after a reused connection fails. WebSocket and HTTP protocol upgrades are not supported.
 
+[`proxy/transport.go`](../../src/internal/proxy/transport.go) creates the shared upstream transport from the top-level `transport` settings in `config.yaml`. Connection pools, TCP and TLS deadlines, buffer sizes, and HTTP/2 selection are fixed at startup. Policy changes that recreate a proxy reuse these settings. See [Upstream transport](../reference/configuration.md#upstream-transport).
+
 Connection errors before a response starts become `502`, and timeouts become `504`. Upstream API errors and status codes are forwarded unchanged. Transmission errors after a response starts close the connection. Proxy-generated errors and logs do not include upstream URLs, API keys, or request bodies.
 
 ## Backend interface

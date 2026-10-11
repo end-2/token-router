@@ -94,6 +94,7 @@ var _ = Describe("the OpenTelemetry pipeline", func() {
 				writer.WriteHeader(http.StatusServiceUnavailable)
 			})
 			environment := telemetryEnvironment(service)
+			environment["TOKEN_ROUTER_SERVER_ADDRESS"] = unusedAddress()
 			environment["TOKEN_ROUTER_TELEMETRY_METRICS_ENABLED"] = fmt.Sprint(metricsEnabled)
 			environment["TOKEN_ROUTER_TELEMETRY_TRACES_ENABLED"] = fmt.Sprint(tracesEnabled)
 			environment["TOKEN_ROUTER_TELEMETRY_LOGS_ENABLED"] = fmt.Sprint(logsEnabled)
@@ -133,7 +134,11 @@ var _ = Describe("the OpenTelemetry pipeline", func() {
 				metricsEnabled, tracesEnabled, logsEnabled)
 			entries, err := accessLogs(process.session.Err.Contents())
 			Expect(err).NotTo(HaveOccurred())
-			Expect(entries).NotTo(BeEmpty(), "JSON stderr access logs remain active for every signal selection")
+			if logsEnabled {
+				Expect(entries).NotTo(BeEmpty())
+			} else {
+				Expect(process.session.Err.Contents()).To(BeEmpty(), "disabled logs must not write to stderr")
+			}
 			if !tracesEnabled {
 				for _, entry := range entries {
 					Expect(entry.TraceID).To(BeEmpty())
@@ -146,14 +151,14 @@ var _ = Describe("the OpenTelemetry pipeline", func() {
 		Entry("exported logs without metrics or traces", SpecTimeout(90*time.Second), false, false, true),
 	)
 
-	It("keeps JSON access logs and the Prometheus listener when telemetry is disabled", func(ctx SpecContext) {
+	It("keeps JSON access logs and the Prometheus listener when OTLP export is disabled", func(ctx SpecContext) {
 		service := uniqueService()
 		traceID, _, traceParent := newTraceParent()
 		upstream := newUpstream(func(writer http.ResponseWriter, _ *http.Request) {
 			writer.WriteHeader(http.StatusNoContent)
 		})
 		environment := telemetryEnvironment(service)
-		environment["TOKEN_ROUTER_TELEMETRY_ENABLED"] = "false"
+		environment["TOKEN_ROUTER_TELEMETRY_OTLP_ENABLED"] = "false"
 		process := startRouter(ctx, upstream.URL, routerOptions{env: environment})
 		client := newHTTPClient()
 		response := request(ctx, client, http.MethodGet, process.url+"/v1/models", "", map[string]string{"Traceparent": traceParent})

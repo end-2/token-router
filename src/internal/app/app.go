@@ -39,7 +39,7 @@ func Run(ctx context.Context, cfg config.Config) (err error) {
 	if err := cfg.Validate(); err != nil {
 		return fmt.Errorf("validate configuration: %w", err)
 	}
-	telemetry, err := observability.NewTelemetry(ctx, cfg.Telemetry, cfg.Log, os.Stderr)
+	telemetry, err := observability.NewTelemetry(ctx, cfg.Telemetry, os.Stderr)
 	if err != nil {
 		return fmt.Errorf("initialize telemetry: %w", err)
 	}
@@ -63,7 +63,7 @@ func Run(ctx context.Context, cfg config.Config) (err error) {
 	}
 	defer upstream.CloseIdleConnections()
 	a.proxy = upstream
-	if cfg.Metrics.Enabled {
+	if cfg.Telemetry.Metrics.Enabled && cfg.Telemetry.Metrics.Prometheus.Enabled {
 		a.metrics, err = observability.New()
 		if err != nil {
 			return fmt.Errorf("initialize metrics: %w", err)
@@ -159,9 +159,9 @@ func (a *application) serve(ctx context.Context) error {
 	}}
 	if a.metrics != nil {
 		mux := http.NewServeMux()
-		mux.Handle(a.cfg.Metrics.Path, a.metrics.Handler())
+		mux.Handle(a.cfg.Telemetry.Metrics.Prometheus.Path, a.metrics.Handler())
 		servers = append(servers, &http.Server{
-			Addr: a.cfg.Metrics.Address, Handler: mux,
+			Addr: a.cfg.Telemetry.Metrics.Prometheus.Address, Handler: mux,
 			ReadHeaderTimeout: a.cfg.Server.ReadHeaderTimeout,
 			ReadTimeout:       10 * time.Second, WriteTimeout: 10 * time.Second,
 			IdleTimeout: a.cfg.Server.IdleTimeout, MaxHeaderBytes: a.cfg.Server.MaxHeaderBytes,

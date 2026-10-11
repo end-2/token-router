@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -56,14 +57,14 @@ func launchRouter(upstreamURL string, options routerOptions) *routerProcess {
 		return strings.HasPrefix(value, "TOKEN_ROUTER_") || strings.HasPrefix(value, "OTEL_")
 	})
 	environment := map[string]string{
-		"TOKEN_ROUTER_SERVER_ADDRESS":          "127.0.0.1:0",
-		"TOKEN_ROUTER_SERVER_SHUTDOWN_TIMEOUT": "2s",
-		"TOKEN_ROUTER_UPSTREAM_BASE_URL":       upstreamURL,
-		"TOKEN_ROUTER_RATE_LIMIT_ENABLED":      "false",
-		"TOKEN_ROUTER_METRICS_ENABLED":         "true",
-		"TOKEN_ROUTER_METRICS_ADDRESS":         "127.0.0.1:0",
-		"TOKEN_ROUTER_LOG_LEVEL":               "info",
-		"TOKEN_ROUTER_LOG_FORMAT":              "json",
+		"TOKEN_ROUTER_SERVER_ADDRESS":                       "127.0.0.1:0",
+		"TOKEN_ROUTER_SERVER_SHUTDOWN_TIMEOUT":              "2s",
+		"TOKEN_ROUTER_UPSTREAM_BASE_URL":                    upstreamURL,
+		"TOKEN_ROUTER_RATE_LIMIT_ENABLED":                   "false",
+		"TOKEN_ROUTER_TELEMETRY_METRICS_PROMETHEUS_ENABLED": "true",
+		"TOKEN_ROUTER_TELEMETRY_METRICS_PROMETHEUS_ADDRESS": "127.0.0.1:0",
+		"TOKEN_ROUTER_TELEMETRY_LOGS_LEVEL":                 "info",
+		"TOKEN_ROUTER_TELEMETRY_LOGS_FORMAT":                "json",
 	}
 	for key, value := range options.env {
 		environment[key] = value
@@ -95,17 +96,24 @@ func launchRouter(upstreamURL string, options routerOptions) *routerProcess {
 func startRouter(ctx context.Context, upstreamURL string, options routerOptions) *routerProcess {
 	GinkgoHelper()
 	process := launchRouter(upstreamURL, options)
-	Eventually(func() ([]string, error) {
-		if process.session.ExitCode() != -1 {
-			return nil, StopTrying(fmt.Sprintf("router exited before listening: %s", process.session.Err.Contents()))
-		}
-		return listenerAddresses(process.session.Err.Contents()), nil
-	}, requestTimeout).Should(HaveLen(2), "both HTTP listeners must report their assigned ports")
-	addresses := listenerAddresses(process.session.Err.Contents())
-	process.url = "http://" + addresses[0]
-	process.metricsURL = "http://" + addresses[1]
+	if address := options.env["TOKEN_ROUTER_SERVER_ADDRESS"]; address != "" && !strings.HasSuffix(address, ":0") {
+		process.url = "http://" + address
+	} else {
+		Eventually(func() ([]string, error) {
+			if process.session.ExitCode() != -1 {
+				return nil, StopTrying(fmt.Sprintf("router exited before listening: %s", process.session.Err.Contents()))
+			}
+			return listenerAddresses(process.session.Err.Contents()), nil
+		}, requestTimeout).Should(HaveLen(2), "both HTTP listeners must report their assigned ports")
+		addresses := listenerAddresses(process.session.Err.Contents())
+		process.url = "http://" + addresses[0]
+		process.metricsURL = "http://" + addresses[1]
+	}
 	client := newHTTPClient()
 	Eventually(func() (int, error) {
+		if process.session.ExitCode() != -1 {
+			return 0, StopTrying(fmt.Sprintf("router exited before readiness: %s", process.session.Err.Contents()))
+		}
 		request, err := http.NewRequestWithContext(ctx, http.MethodGet, process.url+"/readyz", nil)
 		if err != nil {
 			return 0, err
@@ -117,6 +125,15 @@ func startRouter(ctx context.Context, upstreamURL string, options routerOptions)
 		return response.StatusCode, response.Body.Close()
 	}, requestTimeout).Should(Equal(http.StatusOK))
 	return process
+}
+
+func unusedAddress() string {
+	GinkgoHelper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	Expect(err).NotTo(HaveOccurred())
+	address := listener.Addr().String()
+	Expect(listener.Close()).To(Succeed())
+	return address
 }
 
 func listenerAddresses(output []byte) []string {

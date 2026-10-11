@@ -85,7 +85,7 @@ func newCapture(t *testing.T) (*telemetryCapture, *httptest.Server) {
 
 func telemetryConfig(endpoint string) config.Telemetry {
 	cfg := config.Defaults().Telemetry
-	cfg.Enabled = true
+	cfg.OTLP.Enabled = true
 	cfg.ServiceName = "test-router"
 	cfg.ServiceVersion = "test-version"
 	cfg.Environment = "test"
@@ -108,7 +108,7 @@ func shutdownTelemetry(t *testing.T, telemetry *Telemetry) {
 func TestTelemetryExportsCorrelatedSanitizedSignalsOnShutdown(t *testing.T) {
 	capture, receiver := newCapture(t)
 	var output bytes.Buffer
-	telemetry, err := NewTelemetry(context.Background(), telemetryConfig(receiver.URL), config.Defaults().Log, &output)
+	telemetry, err := NewTelemetry(context.Background(), telemetryConfig(receiver.URL), &output)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -224,13 +224,45 @@ func TestTelemetryExportsCorrelatedSanitizedSignalsOnShutdown(t *testing.T) {
 	}
 }
 
+func TestLocalLogConfigurationWithoutOTLP(t *testing.T) {
+	for _, format := range []string{"json", "text"} {
+		t.Run(format, func(t *testing.T) {
+			cfg := config.Defaults().Telemetry
+			cfg.Logs.Level, cfg.Logs.Format = "warn", format
+			var output bytes.Buffer
+			telemetry, err := NewTelemetry(context.Background(), cfg, &output)
+			if err != nil {
+				t.Fatal(err)
+			}
+			telemetry.Logger().Info("filtered message")
+			telemetry.Logger().Warn("visible message")
+			shutdownTelemetry(t, telemetry)
+			if strings.Contains(output.String(), "filtered message") || !strings.Contains(output.String(), "visible message") {
+				t.Fatalf("log level was not applied: %s", output.String())
+			}
+			if format == "json" {
+				var entry map[string]any
+				if err := json.Unmarshal(output.Bytes(), &entry); err != nil {
+					t.Fatal(err)
+				}
+				if entry["level"] != "WARN" || entry["msg"] != "visible message" {
+					t.Fatalf("unexpected JSON log: %v", entry)
+				}
+			} else if !strings.Contains(output.String(), `level=WARN msg="visible message"`) {
+				t.Fatalf("unexpected text log: %s", output.String())
+			}
+		})
+	}
+}
+
 func TestTelemetrySignalSelectionAndInstanceIsolation(t *testing.T) {
 	for _, tc := range []struct {
 		name                  string
 		enabled, traces, logs bool
 		metrics               bool
 	}{
-		{name: "disabled"},
+		{name: "OTLP disabled", traces: true, metrics: true, logs: true},
+		{name: "all disabled"},
 		{name: "traces", enabled: true, traces: true},
 		{name: "metrics", enabled: true, metrics: true},
 		{name: "logs", enabled: true, logs: true},
@@ -239,10 +271,10 @@ func TestTelemetrySignalSelectionAndInstanceIsolation(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			capture, receiver := newCapture(t)
 			cfg := telemetryConfig(receiver.URL)
-			cfg.Enabled, cfg.Traces.Enabled, cfg.Metrics.Enabled, cfg.Logs.Enabled = tc.enabled, tc.traces, tc.metrics, tc.logs
+			cfg.OTLP.Enabled, cfg.Traces.Enabled, cfg.Metrics.Enabled, cfg.Logs.Enabled = tc.enabled, tc.traces, tc.metrics, tc.logs
 			cfg.ServiceInstanceID = "explicit-instance"
 			var output bytes.Buffer
-			telemetry, err := NewTelemetry(context.Background(), cfg, config.Defaults().Log, &output)
+			telemetry, err := NewTelemetry(context.Background(), cfg, &output)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -252,20 +284,24 @@ func TestTelemetrySignalSelectionAndInstanceIsolation(t *testing.T) {
 			shutdownTelemetry(t, telemetry)
 			capture.mu.Lock()
 			defer capture.mu.Unlock()
-			if (len(capture.traces) > 0) != tc.traces || (len(capture.metrics) > 0) != tc.metrics || (len(capture.logs) > 0) != tc.logs {
+			if (len(capture.traces) > 0) != (tc.enabled && tc.traces) || (len(capture.metrics) > 0) != (tc.enabled && tc.metrics) || (len(capture.logs) > 0) != (tc.enabled && tc.logs) {
 				t.Fatalf("signals: traces=%d metrics=%d logs=%d", len(capture.traces), len(capture.metrics), len(capture.logs))
 			}
-			var access map[string]any
-			if err := json.Unmarshal(output.Bytes(), &access); err != nil {
-				t.Fatal(err)
+			if tc.logs {
+				var access map[string]any
+				if err := json.Unmarshal(output.Bytes(), &access); err != nil {
+					t.Fatal(err)
+				}
+				if access["method"] != "OTHER" || access["route"] != "unmatched" || access["status"] != float64(http.StatusNotFound) {
+					t.Fatalf("bounded access attrs=%v", access)
+				}
+				if (!tc.enabled || !tc.traces) && (access["trace_id"] != nil || access["span_id"] != nil) {
+					t.Fatalf("disabled traces created correlation: %v", access)
+				}
+			} else if output.Len() != 0 {
+				t.Fatalf("disabled logs produced output: %s", output.String())
 			}
-			if access["method"] != "OTHER" || access["route"] != "unmatched" || access["status"] != float64(http.StatusNotFound) {
-				t.Fatalf("bounded access attrs=%v", access)
-			}
-			if !tc.traces && (access["trace_id"] != nil || access["span_id"] != nil) {
-				t.Fatalf("disabled traces created correlation: %v", access)
-			}
-			if tc.traces && stringAttr(capture.traces[0].ResourceSpans[0].Resource.Attributes, "service.instance.id") != "explicit-instance" {
+			if tc.enabled && tc.traces && stringAttr(capture.traces[0].ResourceSpans[0].Resource.Attributes, "service.instance.id") != "explicit-instance" {
 				t.Fatal("configured instance identity was not exported")
 			}
 		})
@@ -362,7 +398,7 @@ func TestTelemetryShutdownDeadlineCancelsOngoingExport(t *testing.T) {
 	defer receiver.Close()
 	cfg := telemetryConfig(receiver.URL)
 	cfg.Metrics.Enabled, cfg.Logs.Enabled = false, false
-	telemetry, err := NewTelemetry(context.Background(), cfg, config.Defaults().Log, io.Discard)
+	telemetry, err := NewTelemetry(context.Background(), cfg, io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -392,7 +428,7 @@ func TestTelemetryExportFailureIsStructuredAndFailsShutdown(t *testing.T) {
 	defer receiver.Close()
 	cfg := telemetryConfig(receiver.URL)
 	var output synchronizedBuffer
-	telemetry, err := NewTelemetry(context.Background(), cfg, config.Defaults().Log, &output)
+	telemetry, err := NewTelemetry(context.Background(), cfg, &output)
 	if err != nil {
 		t.Fatal(err)
 	}

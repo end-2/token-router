@@ -92,7 +92,7 @@ var _ = Describe("the running proxy", func() {
 			writer.Header().Set("Content-Type", "application/json")
 			writeBody(writer, `{"data":[]}`)
 		})
-		process := startRouter(ctx, upstream.URL, routerOptions{flags: []string{"--metrics-path", "/observe"}})
+		process := startRouter(ctx, upstream.URL, routerOptions{flags: []string{"--telemetry-metrics-prometheus-path", "/observe"}})
 		client := newHTTPClient()
 		for path, expected := range map[string]string{"/healthz": "ok", "/readyz": "ready"} {
 			response := request(ctx, client, http.MethodGet, process.url+path, "", nil)

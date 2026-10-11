@@ -49,7 +49,7 @@ type logEntry struct {
 
 func telemetryEnvironment(service string) map[string]string {
 	return map[string]string{
-		"TOKEN_ROUTER_TELEMETRY_ENABLED":                 "true",
+		"TOKEN_ROUTER_TELEMETRY_OTLP_ENABLED":            "true",
 		"TOKEN_ROUTER_TELEMETRY_SERVICE_NAME":            service,
 		"TOKEN_ROUTER_TELEMETRY_OTLP_ENDPOINT":           telemetry.otlp,
 		"TOKEN_ROUTER_TELEMETRY_METRICS_EXPORT_INTERVAL": "100ms",

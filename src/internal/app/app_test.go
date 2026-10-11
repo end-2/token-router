@@ -211,6 +211,45 @@ func TestShutdownDrainsAndEnforcesDeadline(t *testing.T) {
 	}
 }
 
+func TestPrometheusListenerSelectionWithoutOTLP(t *testing.T) {
+	for _, tc := range []struct {
+		name                string
+		metrics, prometheus bool
+	}{
+		{"enabled", true, true},
+		{"metrics disabled", false, true},
+		{"Prometheus disabled", true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			occupied, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				if err := occupied.Close(); err != nil {
+					t.Error(err)
+				}
+			})
+			cfg := config.Defaults()
+			cfg.Server.Address = "127.0.0.1:0"
+			cfg.Telemetry.Logs.Enabled = false
+			cfg.Telemetry.Metrics.Enabled = tc.metrics
+			cfg.Telemetry.Metrics.Prometheus.Enabled = tc.prometheus
+			cfg.Telemetry.Metrics.Prometheus.Address = occupied.Addr().String()
+			ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+			defer cancel()
+			err = Run(ctx, cfg)
+			if tc.metrics && tc.prometheus {
+				if err == nil || !strings.Contains(err.Error(), "listen on "+occupied.Addr().String()) {
+					t.Fatalf("enabled Prometheus must attempt to bind its address: %v", err)
+				}
+			} else if err != nil {
+				t.Fatalf("disabled Prometheus must not bind its address: %v", err)
+			}
+		})
+	}
+}
+
 func TestMetricsListenFailureClosesAPIListener(t *testing.T) {
 	occupied, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -231,7 +270,7 @@ func TestMetricsListenFailureClosesAPIListener(t *testing.T) {
 	}
 	a := testApplication(t, http.NotFoundHandler(), &fixedLimiter{})
 	a.cfg.Server.Address = address
-	a.cfg.Metrics.Address = occupied.Addr().String()
+	a.cfg.Telemetry.Metrics.Prometheus.Address = occupied.Addr().String()
 	if err := a.serve(context.Background()); err == nil {
 		t.Fatal("expected metrics bind failure")
 	}

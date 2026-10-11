@@ -52,20 +52,23 @@ type Telemetry struct {
 }
 
 // NewTelemetry constructs providers without changing global OpenTelemetry state.
-// A disabled signal creates no exporter. Local application logging remains enabled.
-func NewTelemetry(ctx context.Context, cfg config.Telemetry, logCfg config.Log, output io.Writer) (_ *Telemetry, err error) {
+// OTLP export and local application logging follow their separate enable settings.
+func NewTelemetry(ctx context.Context, cfg config.Telemetry, output io.Writer) (_ *Telemetry, err error) {
 	var level slog.Level
-	if err := level.UnmarshalText([]byte(logCfg.Level)); err != nil {
+	if err := level.UnmarshalText([]byte(cfg.Logs.Level)); err != nil {
 		return nil, errors.New("invalid log level")
 	}
 	opts := &slog.HandlerOptions{Level: level}
 	var local slog.Handler = slog.NewJSONHandler(output, opts)
-	if logCfg.Format == "text" {
+	if cfg.Logs.Format == "text" {
 		local = slog.NewTextHandler(output, opts)
+	}
+	if !cfg.Logs.Enabled {
+		local = slog.DiscardHandler
 	}
 	t := &Telemetry{
 		logger: slog.New(local), tracer: tracenoop.NewTracerProvider().Tracer(instrumentationName),
-		propagator: propagation.TraceContext{}, tracing: cfg.Enabled && cfg.Traces.Enabled,
+		propagator: propagation.TraceContext{}, tracing: cfg.OTLP.Enabled && cfg.Traces.Enabled,
 	}
 	t.exportContext, t.cancelExports = context.WithCancel(context.Background())
 	defer func() {
@@ -103,7 +106,7 @@ func NewTelemetry(ctx context.Context, cfg config.Telemetry, logCfg config.Log, 
 		t.tracer = t.traces.Tracer(instrumentationName)
 	}
 	meter := metricnoop.NewMeterProvider().Meter(instrumentationName)
-	if cfg.Enabled && cfg.Metrics.Enabled {
+	if cfg.OTLP.Enabled && cfg.Metrics.Enabled {
 		exporter, exportErr := otlpmetrichttp.New(ctx,
 			otlpmetrichttp.WithEndpointURL(endpoint+"/v1/metrics"), otlpmetrichttp.WithTimeout(cfg.OTLP.Timeout),
 		)
@@ -120,7 +123,7 @@ func NewTelemetry(ctx context.Context, cfg config.Telemetry, logCfg config.Log, 
 		return nil, fmt.Errorf("initialize telemetry instruments: %w", err)
 	}
 	handler := local
-	if cfg.Enabled && cfg.Logs.Enabled {
+	if cfg.OTLP.Enabled && cfg.Logs.Enabled {
 		exporter, exportErr := otlploghttp.New(ctx,
 			otlploghttp.WithEndpointURL(endpoint+"/v1/logs"), otlploghttp.WithTimeout(cfg.OTLP.Timeout),
 		)

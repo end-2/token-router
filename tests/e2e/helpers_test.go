@@ -56,10 +56,16 @@ func launchRouter(upstreamURL string, options routerOptions) *routerProcess {
 	command.Env = slices.DeleteFunc(os.Environ(), func(value string) bool {
 		return strings.HasPrefix(value, "TOKEN_ROUTER_") || strings.HasPrefix(value, "OTEL_")
 	})
+	baseURLs := []string{}
+	if upstreamURL != "" {
+		baseURLs = append(baseURLs, upstreamURL)
+	}
+	encodedURLs, err := json.Marshal(baseURLs)
+	Expect(err).NotTo(HaveOccurred())
 	environment := map[string]string{
 		"TOKEN_ROUTER_SERVER_ADDRESS":                       "127.0.0.1:0",
 		"TOKEN_ROUTER_SERVER_SHUTDOWN_TIMEOUT":              "2s",
-		"TOKEN_ROUTER_UPSTREAM_BASE_URL":                    upstreamURL,
+		"TOKEN_ROUTER_UPSTREAM_BASE_URLS":                   string(encodedURLs),
 		"TOKEN_ROUTER_RATE_LIMIT_ENABLED":                   "false",
 		"TOKEN_ROUTER_TELEMETRY_METRICS_PROMETHEUS_ENABLED": "true",
 		"TOKEN_ROUTER_TELEMETRY_METRICS_PROMETHEUS_ADDRESS": "127.0.0.1:0",

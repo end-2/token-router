@@ -4,6 +4,7 @@
 !go.sum
 !.golangci.yaml
 !config.yaml
+!policy.yaml
 !src/
 !src/**
 !tests/

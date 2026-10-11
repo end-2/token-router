@@ -9,7 +9,7 @@ RUN go mod download
 FROM dependencies AS source
 COPY src ./src
 COPY tests/e2e ./tests/e2e
-COPY config.yaml .golangci.yaml ./
+COPY config.yaml policy.yaml .golangci.yaml ./
 
 FROM source AS test
 CMD ["go", "test", "-race", "-count=1", "./..."]
@@ -43,12 +43,12 @@ CMD ["ginkgo", "--tags=e2e", "--race", "--timeout=10m", "--fail-on-pending", "--
 FROM scratch AS runtime
 COPY --from=dependencies /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=builder /out/token-router /usr/local/bin/token-router
+COPY --chown=65532:65532 config.yaml policy.yaml /app/
 WORKDIR /app
-COPY --chown=65532:65532 config.yaml ./config.yaml
 USER 65532:65532
 ENV TOKEN_ROUTER_SERVER_ADDRESS=:8080 \
     TOKEN_ROUTER_TELEMETRY_METRICS_PROMETHEUS_ADDRESS=:9090
-EXPOSE 8080 9090
+EXPOSE 8080 9090 9091
 STOPSIGNAL SIGTERM
 ENTRYPOINT ["/usr/local/bin/token-router"]
 CMD ["serve"]

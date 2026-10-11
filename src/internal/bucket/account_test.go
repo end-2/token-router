@@ -2,7 +2,11 @@ package bucket
 
 import (
 	"context"
+	"errors"
+	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -81,10 +85,81 @@ func TestMemoryAccountCleanupPreservesDebt(t *testing.T) {
 	if _, err := l.Allow(WithAccount(t.Context(), "trigger")); err != nil {
 		t.Fatal(err)
 	}
-	if l.states[accountKey(idle)] != nil || l.states[accountKey(debtor)] == nil {
+	if l.shard(accountKey(idle)).states[accountKey(idle)] != nil || l.shard(accountKey(debtor)).states[accountKey(debtor)] == nil {
 		t.Fatal("cleanup must remove refilled accounts and retain token debt")
 	}
 	if decision, err := l.Allow(debtor); err != nil || decision.Allowed {
 		t.Fatalf("cleanup lost debt: %+v, %v", decision, err)
+	}
+}
+
+func TestMemoryConcurrentAccountBurst(t *testing.T) {
+	for _, count := range []int{1, 64} {
+		t.Run(strconv.Itoa(count), func(t *testing.T) {
+			l := newMemory(1, 3, 0, 0)
+			now := time.Now()
+			l.now = func() time.Time { return now }
+			contexts := make([]context.Context, count)
+			allowed := make([]atomic.Int64, count)
+			var wg sync.WaitGroup
+			for i := range contexts {
+				contexts[i] = WithAccount(t.Context(), strconv.Itoa(i))
+				for range 10 {
+					wg.Go(func() {
+						decision, err := l.Allow(contexts[i])
+						if err != nil {
+							t.Error(err)
+						} else if decision.Allowed {
+							allowed[i].Add(1)
+						}
+					})
+				}
+			}
+			wg.Wait()
+			for i := range contexts {
+				if got := allowed[i].Load(); got != 3 {
+					t.Errorf("account %d allowed %d requests, want 3", i, got)
+				}
+			}
+		})
+	}
+}
+
+func TestMemoryConcurrentAccountUpdatesAndClose(t *testing.T) {
+	l := newMemory(100, 100, 100, 100)
+	var ticks atomic.Int64
+	l.now = func() time.Time { return time.Unix(1700000000+ticks.Add(1), 0) }
+	var wg sync.WaitGroup
+	for i := range 64 {
+		wg.Go(func() {
+			ctx := WithAccount(t.Context(), strconv.Itoa(i))
+			for range 10 {
+				if _, err := l.Allow(ctx); err != nil && !errors.Is(err, ErrClosed) {
+					t.Errorf("Allow: %v", err)
+				}
+				if err := l.RecordUsage(ctx, 200); err != nil && !errors.Is(err, ErrClosed) {
+					t.Errorf("RecordUsage: %v", err)
+				}
+			}
+		})
+	}
+	wg.Go(func() {
+		for i := range 20 {
+			l.Update(config.LimitValues{RequestsPerSecond: float64(i + 1), Burst: i + 1,
+				TokensPerSecond: float64(i + 1), TokenBurst: i + 1})
+		}
+		if err := l.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	wg.Wait()
+	for i := range 64 {
+		ctx := WithAccount(t.Context(), strconv.Itoa(i))
+		if _, err := l.Allow(ctx); !errors.Is(err, ErrClosed) {
+			t.Errorf("account %d Allow after Close: %v", i, err)
+		}
+		if err := l.RecordUsage(ctx, 1); !errors.Is(err, ErrClosed) {
+			t.Errorf("account %d RecordUsage after Close: %v", i, err)
+		}
 	}
 }

@@ -23,6 +23,36 @@ type distributedTestNode struct {
 	cfg     config.RateLimit
 }
 
+func TestDistributedNoopUsageChecksLifecycle(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		rate   float64
+		tokens int64
+	}{
+		{name: "disabled", tokens: 10},
+		{name: "zero usage", rate: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stream := newAdminStream("", "", "", nil)
+			t.Cleanup(stream.cancel)
+			l := &distributedLimiter{stream: stream, timeout: time.Second,
+				limits: config.LimitValues{TokensPerSecond: tc.rate}}
+			if err := l.RecordUsage(t.Context(), tc.tokens); err != nil {
+				t.Fatalf("no-op usage: %v", err)
+			}
+			ctx, cancel := context.WithCancel(t.Context())
+			cancel()
+			if err := l.RecordUsage(ctx, tc.tokens); !errors.Is(err, context.Canceled) {
+				t.Fatalf("canceled no-op usage: %v", err)
+			}
+			stream.cancel()
+			if err := l.RecordUsage(t.Context(), tc.tokens); !errors.Is(err, ErrClosed) {
+				t.Fatalf("closed no-op usage: %v", err)
+			}
+		})
+	}
+}
+
 func distributedCluster(t *testing.T, size int, configure func(*config.RateLimit)) []*distributedTestNode {
 	t.Helper()
 	nodes := make([]*distributedTestNode, size)

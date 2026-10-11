@@ -155,16 +155,16 @@ func (l *distributedLimiter) submit(ctx context.Context, operation string, token
 	if l.stream.ctx.Err() != nil {
 		return Decision{}, ErrClosed
 	}
-	ctx, cancel := context.WithTimeout(ctx, l.timeout)
-	defer cancel()
-	stop := context.AfterFunc(l.stream.ctx, cancel)
-	defer stop()
 	l.mu.RLock()
 	proposal := distributedProposal{Account: accountKey(ctx), Operation: operation, Tokens: tokens, Limits: l.limits}
 	l.mu.RUnlock()
 	if operation == "usage" && (tokens == 0 || proposal.Limits.TokensPerSecond == 0) {
 		return Decision{}, nil
 	}
+	ctx, cancel := context.WithTimeout(ctx, l.timeout)
+	defer cancel()
+	stop := context.AfterFunc(l.stream.ctx, cancel)
+	defer stop()
 	if l.raft.State() == raft.Leader {
 		return l.apply(ctx, proposal)
 	}

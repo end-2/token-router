@@ -1,8 +1,8 @@
-# 배포 컴포넌트와 OpenTelemetry
+# Deployment components and OpenTelemetry
 
-`deploy/components/`는 Redis와 OpenTelemetry 수집 및 조회 환경을 제공한다. 각 하위 디렉토리는 독립적인 Kustomize 구성이며, 상위 `kustomization.yaml`에서 전체 컴포넌트를 모은다. Namespace는 배포 환경에서 지정한다.
+`deploy/components/` provides Redis and an environment for collecting and querying OpenTelemetry data. Each subdirectory is an independent Kustomize configuration, and the parent `kustomization.yaml` combines all components. The deployment environment specifies the namespace.
 
-## 컴포넌트와 데이터 경로
+## Components and data paths
 
 ```text
 token-router
@@ -14,22 +14,22 @@ token-router
 grafana:3000 -> prometheus:9090, loki:3100, tempo:3200
 ```
 
-| 디렉토리 | 이미지 버전 | Service와 용도 | 저장소 |
+| Directory | Image version | Service and purpose | Storage |
 | --- | --- | --- | --- |
-| `redis/` | `redis:7.4.11-alpine3.21` | `redis:6379`, 요청 버킷 | `1Gi` PVC |
-| `otel-collector/` | `otel/opentelemetry-collector-contrib:0.162.0` | `4318`, OTLP HTTP 수신. `8889`, Prometheus 수집. `13133`, 상태 검사 | 메모리 큐 |
-| `prometheus/` | `prom/prometheus:v3.15.0` | `prometheus:9090`, 메트릭 조회 | `emptyDir`, 보존 기간 `24h` |
-| `tempo/` | `grafana/tempo:2.10.8` | `tempo:4318`, OTLP HTTP 수신. `tempo:3200`, 트레이스 조회 | `emptyDir`, 보존 기간 `24h` |
-| `loki/` | `grafana/loki:3.7.8` | `loki:3100`, OTLP 로그 수신과 조회 | `emptyDir`, 보존 기간 `24h` |
-| `grafana/` | `grafana/grafana:13.2.3` | `grafana:3000`, 데이터 조회 UI | `emptyDir` |
+| `redis/` | `redis:7.4.11-alpine3.21` | `redis:6379`, request buckets | `1Gi` PVC |
+| `otel-collector/` | `otel/opentelemetry-collector-contrib:0.162.0` | `4318`, OTLP HTTP ingestion. `8889`, Prometheus scraping. `13133`, health checks | In-memory queue |
+| `prometheus/` | `prom/prometheus:v3.15.0` | `prometheus:9090`, metric queries | `emptyDir`, `24h` retention |
+| `tempo/` | `grafana/tempo:2.10.8` | `tempo:4318`, OTLP HTTP ingestion. `tempo:3200`, trace queries | `emptyDir`, `24h` retention |
+| `loki/` | `grafana/loki:3.7.8` | `loki:3100`, OTLP log ingestion and queries | `emptyDir`, `24h` retention |
+| `grafana/` | `grafana/grafana:13.2.3` | `grafana:3000`, data query UI | `emptyDir` |
 
-모든 이미지는 태그와 digest로 고정한다. 각 컴포넌트의 `service.yaml`과 `deployment.yaml` 또는 `statefulset.yaml`에서 포트, 상태 검사, 리소스 제한과 볼륨을 확인할 수 있다. 설정 파일은 `config.yaml`이며, Grafana는 `datasources.yaml`, Redis는 `redis.conf`를 사용한다. Kustomize가 생성하는 ConfigMap 이름은 설정 내용에 따라 바뀌므로 설정 변경 후 적용하면 Pod가 교체된다.
+All images are pinned by tag and digest. Each component's `service.yaml` and `deployment.yaml` or `statefulset.yaml` define ports, health checks, resource limits, and volumes. Configuration uses `config.yaml`, except Grafana uses `datasources.yaml` and Redis uses `redis.conf`. Kustomize-generated ConfigMap names depend on their contents, so applying configuration changes replaces Pods.
 
-이 구성은 단일 인스턴스의 개발 및 테스트 환경이다. 모든 Service는 `ClusterIP`이고, 인증과 TLS를 설정하지 않는다. Grafana는 익명 `Viewer` 접근을 사용하며 로그인과 초기 관리자 생성을 비활성화한다. 관측 데이터의 `emptyDir`은 Pod 교체 시 삭제된다. 표의 보존 기간은 설정된 정책이며 정확한 삭제 시점을 보장하지 않는다. 운영 환경에서는 인증, TLS, 영구 저장소, 보존 정책과 리소스 한도를 환경에 맞게 설정한다.
+This is a single-instance development and test environment. All Services are `ClusterIP`, with no authentication or TLS configured. Grafana uses anonymous `Viewer` access and disables login and initial administrator creation. Observability data in `emptyDir` is deleted when Pods are replaced. The table lists configured retention policies without guaranteeing exact deletion times. Configure authentication, TLS, persistent storage, retention, and resource limits for your production environment.
 
-## 애플리케이션 연결
+## Connecting the application
 
-같은 Namespace의 애플리케이션에 다음 환경 변수를 설정한다. `TOKEN_ROUTER_TELEMETRY_OTLP_ENDPOINT`는 `/v1/traces` 같은 개별 신호 경로를 포함하지 않는 기본 URL이다.
+Set these environment variables on an application in the same namespace. `TOKEN_ROUTER_TELEMETRY_OTLP_ENDPOINT` is a base URL without individual signal paths such as `/v1/traces`.
 
 ```yaml
 env:
@@ -39,22 +39,22 @@ env:
     value: http://otel-collector:4318
 ```
 
-애플리케이션은 JSON 로그를 출력하고 활성화된 메트릭, 로그와 트레이스를 Collector로 전송한다. `service.name`, `service.instance.id`, `service.version`, `deployment.environment.name`은 애플리케이션의 `telemetry` 설정으로 구성한다. `service.namespace`는 현재 애플리케이션에서 지정하지 않지만 Collector는 이 속성을 가진 다른 서비스의 데이터도 수집할 수 있다. 설정 키와 우선순위는 [프록시 서버 개발과 실행](proxy-server.md)을 참고한다.
+The application emits JSON logs and sends enabled metrics, logs, and traces to the Collector. Application `telemetry` settings configure `service.name`, `service.instance.id`, `service.version`, and `deployment.environment.name`. The application currently does not set `service.namespace`, but the Collector can ingest data from other services that supply it. See [Proxy server development and execution](proxy-server.md) for configuration keys and precedence.
 
-Collector는 메트릭을 `/metrics`로 노출하며 Prometheus가 5초마다 수집한다. `service.name`, `service.namespace`, `service.version`, `deployment.environment.name`만 메트릭의 추가 resource label로 허용한다. 기본 `instance` label에는 `service.instance.id`를 유지하므로 서로 다른 프로세스의 메트릭을 구분한다. Loki는 같은 네 resource attribute를 인덱스 label로 사용하고, `service.instance.id`와 `trace_id`는 structured metadata로 보관한다. native OTLP 로그는 TSDB schema `v13`에 저장하고, Tempo는 OTLP HTTP 트레이스를 받는다. Collector 배치는 최대 1초 간격으로 전송한다.
+The Collector exposes metrics at `/metrics`, scraped by Prometheus every five seconds. Only `service.name`, `service.namespace`, `service.version`, and `deployment.environment.name` are allowed as additional metric resource labels. The default `instance` label retains `service.instance.id` to distinguish processes. Loki uses the same four resource attributes as index labels, retaining `service.instance.id` and `trace_id` as structured metadata. Native OTLP logs use TSDB schema `v13`, and Tempo accepts OTLP HTTP traces. Collector batches are sent at intervals of at most one second.
 
-Grafana에는 `Prometheus`, `Loki`, `Tempo` datasource를 자동 등록한다. Loki의 `trace_id`에서 Tempo 트레이스를 열 수 있고, Tempo에서는 같은 서비스와 trace ID의 Loki 로그를 조회할 수 있다. Prometheus exemplar의 `trace_id`도 Tempo datasource와 연결한다.
+Grafana automatically provisions `Prometheus`, `Loki`, and `Tempo` data sources. Loki's `trace_id` links to Tempo traces, and Tempo can query Loki logs for the same service and trace ID. Prometheus exemplar `trace_id` values also link to the Tempo data source.
 
-## 설치와 조회
+## Installation and queries
 
-전체 컴포넌트 또는 필요한 컴포넌트만 렌더링한다.
+Render all components or only the ones you need:
 
 ```sh
 kubectl kustomize deploy/components
 kubectl kustomize deploy/components/otel-collector
 ```
 
-기존 Namespace에 설치하려면 대상 context와 Namespace를 지정한다.
+To install into an existing namespace, specify the target context and namespace:
 
 ```sh
 kubectl --context <context-name> -n <namespace> apply -k deploy/components
@@ -62,20 +62,20 @@ kubectl --context <context-name> -n <namespace> rollout status deployment/otel-c
 kubectl --context <context-name> -n <namespace> rollout status statefulset/redis
 ```
 
-`<context-name>`과 `<namespace>`는 실제 환경 값으로 바꾼다. Collector, Prometheus, Tempo, Loki, Grafana는 같은 Namespace에 배포한다. 다른 Namespace나 외부 백엔드에 연결하려면 각 설정 파일의 Service 주소도 변경한다.
+Replace `<context-name>` and `<namespace>` with actual environment values. Deploy Collector, Prometheus, Tempo, Loki, and Grafana in the same namespace. To connect to another namespace or external backends, also change the Service addresses in each configuration file.
 
-Grafana UI는 로컬 포트 전달로 조회한다.
+Access the Grafana UI through local port forwarding:
 
 ```sh
 kubectl --context <context-name> -n <namespace> \
   port-forward --address 127.0.0.1 service/grafana 13000:3000
 ```
 
-브라우저에서 `http://127.0.0.1:13000`에 접속하고 Explore에서 datasource를 선택한다. 애플리케이션에서 데이터를 전송한 뒤 Prometheus 메트릭, Loki 로그와 Tempo 트레이스를 조회할 수 있다.
+Open `http://127.0.0.1:13000` in a browser and select a data source in Explore. After the application sends data, query Prometheus metrics, Loki logs, and Tempo traces.
 
-## kind와 Docker E2E 검증
+## kind and Docker E2E validation
 
-[Kind 테스트 환경](kind-test-environment.md)은 전체 컴포넌트를 `token-router-test` Namespace에 배포한다.
+The [kind test environment](kind-test-environment.md) deploys all components in the `token-router-test` namespace.
 
 ```sh
 make kind-render
@@ -84,22 +84,22 @@ make kind-test
 make kind-status
 ```
 
-`make kind-up`은 Redis StatefulSet과 모든 관측 Deployment가 준비될 때까지 기다린다. `make kind-test`는 클러스터 DNS와 HTTP, Redis의 `PING`, `SET`, `GET`, 관측 Service 상태 검사, Collector의 세 OTLP HTTP 수신 경로를 확인한다. 상태 검사는 저장된 데이터의 조회까지 보장하지 않는다.
+`make kind-up` waits for the Redis StatefulSet and all observability Deployments to become ready. `make kind-test` checks cluster DNS and HTTP, Redis `PING`, `SET`, and `GET`, observability Service health checks, and the Collector's three OTLP HTTP ingestion paths. Health checks do not guarantee that stored data can be queried.
 
-[Ginkgo E2E 테스트](end-to-end-tests.md)는 같은 Collector, Prometheus, Tempo, Loki 설정 파일을 Docker Compose에서 읽기 전용으로 마운트한다. 실제 애플리케이션 요청을 발생시켜 메트릭, 트레이스와 로그를 각 백엔드에서 조회한다. Grafana UI는 애플리케이션 E2E 경로에 포함하지 않는다.
+[Ginkgo E2E tests](end-to-end-tests.md) mount the same Collector, Prometheus, Tempo, and Loki configuration files read-only in Docker Compose. They generate actual application requests and query metrics, traces, and logs from each backend. The Grafana UI is outside the application E2E path.
 
-## Redis 저장소
+## Redis storage
 
-Redis는 replica 1개의 StatefulSet이다. 클라이언트는 `redis:6379`로 연결하고, StatefulSet은 `redis-headless:6379`를 사용한다. 데이터는 `/data`에 저장하며 PVC 이름은 `data-redis-0`, 크기는 `1Gi`, 접근 모드는 `ReadWriteOnce`이다. 클러스터에 기본 StorageClass와 동적 볼륨 provisioner가 필요하다.
+Redis is a StatefulSet with one replica. Clients connect to `redis:6379`, while the StatefulSet uses `redis-headless:6379`. Data lives in `/data`; the PVC is named `data-redis-0`, has size `1Gi`, and uses `ReadWriteOnce`. The cluster needs a default StorageClass and dynamic volume provisioner.
 
-`maxmemory 128mb`와 `noeviction`을 사용하고 Pod 메모리 한도는 `256Mi`이다. AOF를 활성화하고 `appendfsync everysec`을 사용하며 RDB snapshot은 비활성화한다. startup, readiness, liveness probe는 `redis-cli -e ping`이다.
+Redis uses `maxmemory 128mb` and `noeviction`, with a Pod memory limit of `256Mi`. AOF is enabled with `appendfsync everysec`, and RDB snapshots are disabled. Startup, readiness, and liveness probes use `redis-cli -e ping`.
 
-Pod의 UID는 `999`, GID와 `fsGroup`은 `1000`이다. 컨테이너의 루트 파일 시스템은 읽기 전용이다. StatefulSet 삭제나 replica 축소 시 PVC를 유지하며 같은 Namespace에 같은 이름으로 재배포하면 유지한 PVC를 다시 사용한다. Namespace 또는 PVC 삭제는 별도 작업이다. `make kind-down`은 클러스터와 그 안의 모든 데이터를 삭제한다.
+The Pod UID is `999`; GID and `fsGroup` are `1000`. The container root filesystem is read-only. PVCs are retained when the StatefulSet is deleted or scaled down; redeploying under the same name in the same namespace reuses them. Namespace or PVC deletion is a separate operation. `make kind-down` deletes the cluster and all data within it.
 
-## 설정 근거
+## Configuration references
 
-- Collector `v0.162.0`: [Prometheus exporter 설정](https://github.com/open-telemetry/opentelemetry-collector-contrib/blob/v0.162.0/exporter/prometheusexporter/README.md), [health check extension](https://github.com/open-telemetry/opentelemetry-collector-contrib/blob/v0.162.0/extension/healthcheckextension/README.md).
-- Tempo `v2.10.8`: [공식 로컬 실행 설정](https://github.com/grafana/tempo/blob/v2.10.8/example/docker-compose/local/tempo.yaml). `2.10.x`는 Kafka 없는 단일 프로세스 구성을 제공하며, [유지보수 버전 안내](https://grafana.com/docs/tempo/latest/set-up-for-tracing/setup-tempo/recommended-versions/)에 따라 유지되는 계열이다.
-- Loki `v3.7.8`: [공식 로컬 실행 설정](https://github.com/grafana/loki/blob/v3.7.8/cmd/loki/loki-local-config.yaml), [OTLP 로그 수집](https://grafana.com/docs/loki/latest/send-data/otel/).
-- Grafana `v13.2.3`: [기본 설정](https://github.com/grafana/grafana/blob/v13.2.3/conf/defaults.ini), [datasource provisioning](https://grafana.com/docs/grafana/latest/administration/provisioning/#data-sources).
-- Redis `7.4.11`: [서버 설정](https://github.com/redis/redis/blob/7.4.11/redis.conf), [이미지 UID와 GID 정의](https://github.com/redis/docker-library-redis/blob/74654c612ee06275377d483dc4e134e57b463e9e/alpine/Dockerfile).
+- Collector `v0.162.0`: [Prometheus exporter configuration](https://github.com/open-telemetry/opentelemetry-collector-contrib/blob/v0.162.0/exporter/prometheusexporter/README.md), [health check extension](https://github.com/open-telemetry/opentelemetry-collector-contrib/blob/v0.162.0/extension/healthcheckextension/README.md).
+- Tempo `v2.10.8`: [Official local configuration](https://github.com/grafana/tempo/blob/v2.10.8/example/docker-compose/local/tempo.yaml). `2.10.x` provides a single-process setup without Kafka and is a maintained series according to the [supported version guidance](https://grafana.com/docs/tempo/latest/set-up-for-tracing/setup-tempo/recommended-versions/).
+- Loki `v3.7.8`: [Official local configuration](https://github.com/grafana/loki/blob/v3.7.8/cmd/loki/loki-local-config.yaml), [OTLP log ingestion](https://grafana.com/docs/loki/latest/send-data/otel/).
+- Grafana `v13.2.3`: [Default configuration](https://github.com/grafana/grafana/blob/v13.2.3/conf/defaults.ini), [data source provisioning](https://grafana.com/docs/grafana/latest/administration/provisioning/#data-sources).
+- Redis `7.4.11`: [Server configuration](https://github.com/redis/redis/blob/7.4.11/redis.conf), [image UID and GID definitions](https://github.com/redis/docker-library-redis/blob/74654c612ee06275377d483dc4e134e57b463e9e/alpine/Dockerfile).

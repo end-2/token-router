@@ -1,17 +1,17 @@
-# 프록시 서버 개발과 실행
+# Proxy server development and execution
 
-## 필요한 도구
+## Required tools
 
-- 실행 중인 Docker Engine 또는 Docker Desktop과 Docker BuildKit
-- Docker Compose v2는 `make e2e`에 필요하다.
-- GNU Make와 Bash
-- 이미지와 Go 모듈을 다운로드할 수 있는 네트워크 연결
-- Go 1.27.2는 호스트에서 `make run` 또는 `*-local` 명령을 사용할 때 필요하다.
-- Redis는 `rate_limit.backend=redis`를 선택하거나 실제 Redis 통합 테스트를 실행할 때 필요하다.
+- A running Docker Engine or Docker Desktop with Docker BuildKit
+- Docker Compose v2 for `make e2e`
+- GNU Make and Bash
+- Network access to download images and Go modules
+- Go 1.27.2 for `make run` or `*-local` commands on the host
+- Redis when selecting `rate_limit.backend=redis` or running integration tests against an actual Redis server
 
-다음 명령은 저장소 루트를 기준으로 한다. [`Dockerfile`](../../Dockerfile)의 빌드 환경과 [`go.mod`](../../go.mod)는 Go 1.27.2를 사용한다. Docker에서 빌드, 단위 테스트, vet와 lint를 실행하므로 호스트에 Go나 `golangci-lint`를 설치할 필요가 없다.
+Run the following commands from the repository root. The build environment in [`Dockerfile`](../../Dockerfile) and [`go.mod`](../../go.mod) use Go 1.27.2. Builds, unit tests, vet, and lint run in Docker, so Go and `golangci-lint` are not required on the host.
 
-## Docker 빌드와 실행
+## Docker builds and execution
 
 ```sh
 make build
@@ -24,15 +24,15 @@ docker run --rm --stop-timeout 40 \
   token-router:local serve --config /app/config/config.yaml
 ```
 
-`make build`는 Docker 빌드에서 Linux 실행 파일을 생성해 `bin/token-router`로 내보낸다. 호스트 운영체제용 실행 파일은 `make build-local`로 빌드한다. `make image`의 기본 이미지 이름은 `token-router:local`이며 `make image APP_IMAGE=token-router:dev`처럼 변경할 수 있다.
+`make build` produces a Linux executable in Docker and exports it to `bin/token-router`. Use `make build-local` for a host-native executable. The default image name for `make image` is `token-router:local`; override it with a command such as `make image APP_IMAGE=token-router:dev`.
 
-실행 이미지는 CA 인증서와 실행 파일, 기본 [`config.yaml`](../../config.yaml)과 [`policy.yaml`](../../policy.yaml)을 포함하며 UID와 GID `65532`로 실행한다. 기본 작업 디렉토리는 `/app`, 기본 명령은 `serve`다. 예제는 저장소 디렉토리를 읽기 전용으로 마운트하고 그 안의 설정을 사용한다. 디렉토리 마운트이므로 호스트에서 policy 파일을 rename으로 교체해도 감시할 수 있다. upstream API key가 없으면 클라이언트 요청의 `Authorization`을 사용한다.
+The runtime image contains CA certificates, the executable, and default [`config.yaml`](../../config.yaml) and [`policy.yaml`](../../policy.yaml) files. It runs with UID and GID `65532`, uses `/app` as its working directory, and defaults to `serve`. The example mounts the repository directory read-only and uses its configuration. A directory mount allows policy watching even when the host replaces the file by renaming it. Without an upstream API key, the client's `Authorization` header is used.
 
-이미지는 `TOKEN_ROUTER_SERVER_ADDRESS=:8080`과 `TOKEN_ROUTER_TELEMETRY_METRICS_PROMETHEUS_ADDRESS=:9090`을 설정해 컨테이너 외부에서 연결할 수 있게 한다. 이 환경 변수는 YAML의 주소보다 우선하므로 주소를 변경하려면 `docker run -e`나 CLI 인자로 재정의한다. 위 명령은 호스트 포트를 `127.0.0.1`에만 공개한다.
+The image sets `TOKEN_ROUTER_SERVER_ADDRESS=:8080` and `TOKEN_ROUTER_TELEMETRY_METRICS_PROMETHEUS_ADDRESS=:9090` to allow connections from outside the container. These environment variables override YAML addresses; use `docker run -e` or CLI arguments to change them. The command above exposes host ports only on `127.0.0.1`.
 
-`validate`는 설정 구문과 값만 검사하며 Redis나 upstream 연결은 검사하지 않는다. `tests/kind/config.yaml`은 애플리케이션 설정과 별개의 kind 클러스터 설정이다.
+`validate` checks configuration syntax and values only, without checking Redis or upstream connectivity. `tests/kind/config.yaml` configures the kind cluster separately from application configuration.
 
-서버 실행 후 다음 경로를 확인한다.
+After starting the server, check these endpoints:
 
 ```sh
 curl --fail http://127.0.0.1:8080/healthz
@@ -42,9 +42,9 @@ curl --fail http://127.0.0.1:8080/v1/models \
   -H "Authorization: Bearer ${OPENAI_API_KEY}"
 ```
 
-`OPENAI_API_KEY`는 이 `curl` 예시에서 사용하는 셸 변수다. 서버가 이 변수를 자동으로 읽지는 않는다. 공통 upstream API key는 `policy.yaml`의 `upstream.api_key`로 설정한다. 이 필드를 policy 파일에서 생략하면 시작 환경 변수 `TOKEN_ROUTER_UPSTREAM_API_KEY`를 사용할 수 있다. API key를 설정한 프록시로 들어오는 요청은 해당 key를 사용한다. 현재 프록시 자체의 사용자 인증은 없다. 호스트에서 직접 실행할 때 기본 API와 메트릭 리스너는 loopback 주소에 바인딩한다.
+`OPENAI_API_KEY` is a shell variable used by this `curl` example; the server does not read it automatically. Set a shared upstream API key through `upstream.api_key` in `policy.yaml`. If the field is omitted from the policy file, the startup environment variable `TOKEN_ROUTER_UPSTREAM_API_KEY` can supply it. Requests entering a proxy with an API key configured use that key. The proxy itself currently provides no user authentication. When run directly on the host, default API and metrics listeners bind to loopback addresses.
 
-## 검증
+## Validation
 
 ```sh
 make test
@@ -53,15 +53,15 @@ make lint
 make e2e
 ```
 
-`make test`는 race detector를 포함한 일반 Go 테스트를 실행한다. 설정 계층, 메모리와 Redis의 요청 수 및 토큰 사용량 버킷, Host와 model 기반 라우팅, 동시 요청의 라운드 로빈 분배, HTTP 프록시, JSON과 SSE의 사용량 집계, SSE 전달, HTTP 상태 메트릭과 graceful shutdown을 검사한다. 일반 테스트는 로컬 테스트 upstream과 `miniredis`를 사용하므로 OpenAI API key나 외부 Redis 서버가 필요 없다.
+`make test` runs ordinary Go tests with the race detector. It checks configuration layers, memory and Redis request and token usage buckets, Host and model routing, concurrent round-robin distribution, HTTP proxying, JSON and SSE usage accounting, SSE forwarding, HTTP status metrics, and graceful shutdown. Ordinary tests use local test upstreams and `miniredis`, so no OpenAI API key or external Redis server is required.
 
-[`streaming_body_test.go`](../../src/internal/proxy/streaming_body_test.go)는 upstream transport의 마지막 요청 본문 읽기를 지연시킨 상태에서 SSE 응답을 시작해 본문 읽기와 스트림 전달이 모두 완료되는지 확인한다.
+[`streaming_body_test.go`](../../src/internal/proxy/streaming_body_test.go) starts an SSE response while delaying the upstream transport's final request body read, then verifies that both body reading and stream forwarding finish.
 
-`make vet`와 `make lint`는 `e2e` build tag를 포함해 E2E 테스트 코드도 검사한다. `make lint`는 Docker에서 `golangci-lint` v2.14.0을 실행하며 [`.golangci.yaml`](../../.golangci.yaml)의 기본 검사에 `bodyclose`, `ginkgolinter`와 `gofmt` 검사를 추가한다. Ginkgo와 실제 Redis를 사용하는 `make e2e`의 구성과 시나리오는 [Ginkgo E2E 테스트](end-to-end-tests.md)에 있다.
+`make vet` and `make lint` include the `e2e` build tag to check E2E test code as well. `make lint` runs `golangci-lint` v2.14.0 in Docker, adding `bodyclose`, `ginkgolinter`, and `gofmt` to the default checks in [`.golangci.yaml`](../../.golangci.yaml). See [Ginkgo E2E tests](end-to-end-tests.md) for the configuration and scenarios of `make e2e`, which uses Ginkgo and an actual Redis server.
 
-## 호스트 도구 사용
+## Using host tools
 
-Go의 자동 toolchain 선택을 사용하는 환경에서는 `go.mod`에 지정한 버전의 Go가 다운로드될 수 있다.
+With automatic Go toolchain selection enabled, Go may download the version specified in `go.mod`.
 
 ```sh
 go run ./src/cmd/token-router --help
@@ -69,7 +69,7 @@ go run ./src/cmd/token-router validate --config config.yaml
 make run
 ```
 
-`serve`를 생략해도 서버가 실행된다. 호스트 도구를 사용하는 빌드와 검증은 다음과 같다.
+Omitting `serve` also starts the server. Use these commands to build and validate with host tools:
 
 ```sh
 make build-local
@@ -80,9 +80,9 @@ make lint-local
 make fmt
 ```
 
-## Redis 전략 실행
+## Running the Redis backend
 
-[배포 컴포넌트와 Redis](deployment-components.md)의 포트 전달 절차를 사용하면 kind의 Redis를 호스트 `127.0.0.1:16379`로 연결할 수 있다. 포트 전달을 유지한 상태에서 다음과 같이 실행한다.
+Use the port-forwarding procedure in [Deployment components and Redis](deployment-components.md) to reach kind's Redis at host address `127.0.0.1:16379`. Keep the port forward running and execute:
 
 ```sh
 go run ./src/cmd/token-router serve \
@@ -90,28 +90,28 @@ go run ./src/cmd/token-router serve \
   --rate-limit-redis-address 127.0.0.1:16379
 ```
 
-Redis를 선택하면 시작 시 `PING`에 성공해야 HTTP 리스너가 열린다. 요청 허용 판단 중 Redis에 접근할 수 없으면 `503`을 반환한다. Redis의 같은 DB와 `rate_limit.redis.key`를 사용하는 인스턴스는 요청 수와 토큰 사용량 제한을 공유하므로 같은 제한값을 설정한다. 토큰 제한 설정과 응답 수신 후 사용량 기록의 제약은 [요청 수와 토큰 사용량 제한](../reference/configuration.md#요청-수와-토큰-사용량-제한)에 있다.
+With Redis selected, startup must complete `PING` before opening HTTP listeners. Redis failures during admission return `503`. Instances sharing the same Redis DB and `rate_limit.redis.key` share request and token usage limits and must use the same limit values. See [Request count and token usage limits](../reference/configuration.md#request-count-and-token-usage-limits) for token configuration and constraints on recording usage after responses.
 
-접근 가능한 테스트용 Redis에서 실제 Lua 동시성 테스트를 실행할 수 있다. 이 테스트는 고유 key를 만들고 종료 시 해당 key만 삭제한다.
+Run the actual Lua concurrency test against an accessible test Redis server. It creates a unique key and deletes only that key on completion.
 
 ```sh
 TOKEN_ROUTER_TEST_REDIS_ADDR=127.0.0.1:16379 \
   go test -race ./src/internal/bucket -run TestRedisIntegrationSharedAtomicBucket
 ```
 
-## 종료
+## Shutdown
 
-`SIGINT` 또는 `SIGTERM`을 받으면 readiness가 내려가고 리스너를 닫는다. 진행 중인 요청은 `server.shutdown_timeout`까지 기다린다. 제한 시간이 지나면 연결을 강제로 닫고 upstream 요청 context를 취소한다. 강제 종료가 발생하면 프로세스는 오류로 종료한다.
+On `SIGINT` or `SIGTERM`, readiness is disabled and listeners close. Active requests may finish within `server.shutdown_timeout`. After the deadline, connections are forcibly closed and upstream request contexts are canceled. A forced shutdown makes the process exit with an error.
 
-컨테이너에서는 실행 파일이 PID 1로 신호를 받는다. Docker의 종료 대기 시간은 `server.shutdown_timeout`과 `telemetry.shutdown_timeout`의 합보다 길게 설정한다. 위 실행 예시는 기본 합계인 35초보다 긴 `--stop-timeout 40`을 사용한다.
+In containers, the executable receives signals as PID 1. Set Docker's stop timeout longer than the sum of `server.shutdown_timeout` and `telemetry.shutdown_timeout`. The example above uses `--stop-timeout 40`, longer than the default total of 35 seconds.
 
-OpenTelemetry export는 `telemetry.otlp.enabled=true`로 활성화한다. 실행 예시와 Collector 연결 방법은 [OpenTelemetry 관측 구성](../operations/observability.md)에 있다.
+Enable OpenTelemetry export with `telemetry.otlp.enabled=true`. See [OpenTelemetry observability](../operations/observability.md) for execution examples and Collector connections.
 
-메인 설정과 환경 변수는 시작할 때 읽는다. upstream과 rate limit 수치는 별도 `policy.file`의 파일 감시 또는 전용 admin API로 변경할 수 있다. 실행 명령, 파일 저장 권한과 API 예제는 [Policy 설정과 admin API](../operations/policy-configuration.md)에 있다. backend 전략, 분산 memory 클러스터, 리스너와 telemetry 설정을 바꾸면 프로세스를 재시작해야 한다.
+Main configuration and environment variables are read at startup. Upstream settings and rate limit values can change through watching the separate `policy.file` or using the dedicated admin API. See [Policy configuration and admin API](../operations/policy-configuration.md) for commands, file permissions, and API examples. Changes to the backend, distributed memory cluster, listeners, or telemetry require a process restart.
 
-## 분산 memory와 계정 제한 검증
+## Validating distributed memory and account limits
 
-분산 memory 구성은 [분산 memory rate limit](../operations/distributed-rate-limiting.md), Basic과 Bearer 식별자 설정은 [계정별 제한](../reference/configuration.md#계정별-제한)을 따른다. 일반 Go 테스트는 실제 HTTP admin 포트의 3개 Raft 노드로 공유 한도, leader 교체, 과반수 상실과 영속 로그 및 snapshot 복구를 검사한다. 외부 Redis나 별도 클러스터는 필요하지 않다.
+Follow [Distributed memory rate limiting](../operations/distributed-rate-limiting.md) for cluster configuration and [Per-account limits](../reference/configuration.md#per-account-limits) for Basic and Bearer identifiers. Ordinary Go tests use three Raft nodes on actual HTTP admin ports to verify shared limits, leader replacement, majority loss, and persistent log and snapshot recovery. No external Redis or separate cluster is required.
 
 ```sh
 go test -race ./src/internal/bucket -run TestDistributed

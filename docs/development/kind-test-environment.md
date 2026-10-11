@@ -1,6 +1,6 @@
 # kind 테스트 환경
 
-`tests/kind/`는 Docker 위에서 Kubernetes 테스트 환경을 구성한다. `deploy/components/`의 Redis와 `kind-echo`라는 샘플 HTTP 서비스를 배포해 클러스터 준비 상태와 네트워크 경로를 확인한다. 현재 저장소에는 애플리케이션 코드와 `Dockerfile`이 없으므로 토큰 사용량 추적이나 제한 기능에 대한 애플리케이션 테스트는 포함하지 않는다. Redis manifest와 저장 설정은 [배포 컴포넌트와 Redis](deployment-components.md)에서 설명한다.
+`tests/kind/`는 Docker 위에서 Kubernetes 테스트 환경을 구성한다. `deploy/components/`의 Redis, Collector, Prometheus, Tempo, Loki, Grafana와 `kind-echo`라는 샘플 HTTP 서비스를 배포해 클러스터 준비 상태와 네트워크 경로를 확인한다. 이 환경은 `src/`의 프록시 애플리케이션을 자동으로 배포하지 않는다. 프록시 이미지 빌드와 실행은 [프록시 서버 개발과 실행](proxy-server.md), 애플리케이션 시나리오 테스트는 [Ginkgo E2E 테스트](end-to-end-tests.md), 컴포넌트 설정과 데이터 경로는 [배포 컴포넌트와 OpenTelemetry](deployment-components.md)에서 설명한다.
 
 ## 디렉토리 구성
 
@@ -19,7 +19,7 @@ tests/kind/
 
 - [`config.yaml`](../../tests/kind/config.yaml): kind 노드, Kubernetes 이미지와 호스트 포트 매핑
 - [`manifests/`](../../tests/kind/manifests/): 테스트 Namespace, HTTP Deployment와 NodePort Service, 공통 배포 컴포넌트 참조
-- [`smoke/job.yaml`](../../tests/kind/smoke/job.yaml): 클러스터 DNS, HTTP와 Redis 응답을 확인하는 Job
+- [`smoke/job.yaml`](../../tests/kind/smoke/job.yaml): 클러스터 DNS, HTTP, Redis와 관측 Service 응답을 확인하는 Job
 - [`scripts/kind.sh`](../../tests/kind/scripts/kind.sh): 환경 생성, 검증, 상태 조회, 이미지 로드와 삭제
 
 ## 필요한 도구
@@ -80,14 +80,15 @@ make kind-status
 
 `make kind-render`는 클러스터에 접근하지 않고 Kustomize로 배포 리소스를 출력한다. smoke Job은 테스트할 때 따로 배포한다.
 
-`make kind-up`은 클러스터를 생성하고 샘플 HTTP 서비스와 Redis를 배포한다. 같은 이름의 클러스터가 있으면 재사용하며, 노드와 CoreDNS, HTTP Deployment, Redis StatefulSet이 준비될 때까지 기다린다. 기존 클러스터를 재사용할 때 `config.yaml`의 노드 구성과 포트 매핑은 변경되지 않는다.
+`make kind-up`은 클러스터를 생성하고 샘플 HTTP 서비스와 전체 배포 컴포넌트를 배포한다. 같은 이름의 클러스터가 있으면 재사용하며, 노드와 CoreDNS, HTTP Deployment, Redis StatefulSet과 관측 Deployment가 준비될 때까지 기다린다. 기존 클러스터를 재사용할 때 `config.yaml`의 노드 구성과 포트 매핑은 변경되지 않는다.
 
 `make kind-test`는 다음 항목을 검증한다.
 
-1. 모든 노드와 CoreDNS, HTTP Deployment, Redis StatefulSet의 준비 상태
+1. 모든 노드와 CoreDNS, HTTP Deployment, Redis StatefulSet, 관측 Deployment의 준비 상태
 2. Job에서 Service DNS 이름으로 HTTP 요청을 보내고 응답 본문 확인
 3. 호스트에서 Docker 포트 매핑과 NodePort Service를 통해 HTTP 요청을 보내고 응답 본문 확인
 4. Job에서 Redis Service DNS 이름으로 `PING`, `SET`과 `GET` 응답 확인
+5. Collector, Prometheus, Tempo, Loki, Grafana 상태 검사와 Collector의 `/v1/metrics`, `/v1/logs`, `/v1/traces` 경로가 OTLP HTTP 요청을 받는지 확인
 
 Job은 실행할 때마다 다시 생성한다. 완료 후 300초가 지나면 Kubernetes가 Job을 정리한다. 실패하면 스크립트가 노드, Pod, Service, StatefulSet, PVC, Job, 이벤트와 컨테이너 로그를 출력한다.
 
@@ -129,13 +130,14 @@ Kubernetes 버전을 변경할 때는 `config.yaml`의 모든 노드 이미지�
 
 ## 로컬 애플리케이션 이미지 사용
 
-별도로 빌드한 로컬 Docker 이미지가 있을 때 레지스트리에 업로드하지 않고 테스트 클러스터에 로드할 수 있다.
+애플리케이션 Docker 이미지를 빌드한 뒤 레지스트리에 업로드하지 않고 테스트 클러스터에 로드할 수 있다.
 
 ```sh
-make kind-load IMAGE=example-image:dev
+make image APP_IMAGE=token-router:dev
+make kind-load IMAGE=token-router:dev
 ```
 
-`example-image:dev`는 실제 로컬 이미지 이름과 태그로 바꾼다. 이 명령은 이미지를 빌드하거나 애플리케이션을 배포하지 않는다. 애플리케이션 Deployment는 해당 이미지 이름과 `imagePullPolicy: IfNotPresent` 또는 `Never`를 사용해야 한다. 이미 실행 중인 Pod는 이미지 로드만으로 교체되지 않는다. `tests/kind/manifests/`에 애플리케이션 리소스를 추가하면 `kustomization.yaml`의 `resources`에도 등록한다.
+`make kind-load`는 이미지를 빌드하거나 애플리케이션을 배포하지 않는다. 애플리케이션 Deployment는 해당 이미지 이름과 `imagePullPolicy: IfNotPresent` 또는 `Never`를 사용해야 한다. 이미 실행 중인 Pod는 이미지 로드만으로 교체되지 않는다. `tests/kind/manifests/`에 애플리케이션 리소스를 추가하면 `kustomization.yaml`의 `resources`에도 등록한다.
 
 스크립트는 Docker daemon의 플랫폼에 해당하는 이미지만 임시 아카이브로 내보내고 `kind load image-archive`로 모든 노드에 로드한다. 아카이브는 명령 종료 시 삭제한다. 따라서 다른 플랫폼의 내려받지 않은 이미지 manifest를 함께 로드하지 않는다. `kind load docker-image`의 기본 저장 경로는 플랫폼을 지정하지 않는다. 구현 근거는 [`kubernetes-sigs/kind`, `pkg/cmd/kind/load/docker-image/docker-image.go`, `save`, v0.33.0](https://github.com/kubernetes-sigs/kind/blob/v0.33.0/pkg/cmd/kind/load/docker-image/docker-image.go)이다.
 
@@ -145,7 +147,7 @@ make kind-load IMAGE=example-image:dev
 make kind-down
 ```
 
-이 명령은 선택한 테스트 클러스터와 전용 kubeconfig를 삭제한다. 클러스터 내부에 저장된 Redis 데이터도 삭제된다. 호스트의 Docker 이미지는 삭제하지 않는다.
+이 명령은 선택한 테스트 클러스터와 전용 kubeconfig를 삭제한다. 클러스터 내부의 Redis 데이터와 관측 데이터도 삭제된다. 호스트의 Docker 이미지는 삭제하지 않는다.
 
 생성 실패나 테스트 실패 시 다음 항목을 확인한다.
 

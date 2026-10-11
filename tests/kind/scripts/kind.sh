@@ -21,7 +21,7 @@ readonly CONTEXT="kind-${CLUSTER_NAME}"
 usage() {
   cat <<'USAGE'
 make kind-up                  Create the cluster, deploy components and HTTP fixtures.
-make kind-test                Check cluster DNS, HTTP, and Redis PING/SET/GET.
+make kind-test                Check DNS, HTTP, Redis, and telemetry service health.
 make kind-status              Show nodes and test namespace resources.
 make kind-render              Render Kubernetes manifests without a cluster.
 make kind-load IMAGE=name:tag  Load a local Docker image into all cluster nodes.
@@ -56,10 +56,13 @@ diagnostics() {
   printf 'Command failed. Test cluster diagnostics:\n' >&2
   if [[ -f "$KUBECONFIG_PATH" ]]; then
     kube --request-timeout=10s get nodes -o wide >&2 || true
-    kube --request-timeout=10s -n "$NAMESPACE" get pods,services,statefulsets,pvc,jobs -o wide >&2 || true
+    kube --request-timeout=10s -n "$NAMESPACE" get deployments,pods,services,statefulsets,pvc,jobs -o wide >&2 || true
     kube --request-timeout=10s -n "$NAMESPACE" get events --sort-by=.lastTimestamp >&2 || true
     kube --request-timeout=10s -n "$NAMESPACE" logs job/kind-smoke --all-containers=true >&2 || true
     kube --request-timeout=10s -n "$NAMESPACE" logs statefulset/redis --tail=50 >&2 || true
+    for component in otel-collector prometheus tempo loki grafana; do
+      kube --request-timeout=10s -n "$NAMESPACE" logs "deployment/$component" --tail=30 >&2 || true
+    done
   fi
   exit "$exit_status"
 }
@@ -69,6 +72,10 @@ wait_ready() {
   kube -n kube-system rollout status deployment/coredns --timeout "$WAIT_TIMEOUT"
   kube -n "$NAMESPACE" rollout status deployment/kind-echo --timeout "$WAIT_TIMEOUT"
   kube -n "$NAMESPACE" rollout status statefulset/redis --timeout "$WAIT_TIMEOUT"
+  local component
+  for component in otel-collector prometheus tempo loki grafana; do
+    kube -n "$NAMESPACE" rollout status "deployment/$component" --timeout "$WAIT_TIMEOUT"
+  done
 }
 
 up() {

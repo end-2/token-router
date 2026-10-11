@@ -25,6 +25,39 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       containers:
+        - name: telemetry-smoke
+          image: busybox:1.37.0@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              for url in \
+                http://otel-collector:13133/ \
+                http://prometheus:9090/-/ready \
+                http://tempo:3200/ready \
+                http://loki:3100/ready \
+                http://grafana:3000/api/health; do
+                wget -T 10 -qO /dev/null "$url"
+              done
+              for signal in metrics logs traces; do
+                wget -T 10 -qO /dev/null --header 'Content-Type: application/json' \
+                  --post-data '{}' "http://otel-collector:4318/v1/$signal"
+              done
+              printf '%s\n' 'Telemetry service health and OTLP receiver checks passed.'
+          resources:
+            requests:
+              cpu: 10m
+              memory: 8Mi
+            limits:
+              cpu: 100m
+              memory: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
         - name: smoke
           image: busybox:1.37.0@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0
           imagePullPolicy: IfNotPresent

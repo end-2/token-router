@@ -6,6 +6,8 @@ AI Token usage를 추적, 관찰, 제한할 수 있도록 제공하는 프레임
 
 JSON 로그와 OpenTelemetry의 metrics, logs, traces를 지원한다. OTLP HTTP로 Collector에 전송하고, 배포 컴포넌트의 Prometheus, Loki, Tempo와 Grafana에서 조회할 수 있다.
 
+HTTP `Host` 헤더와 JSON 본문의 `model`로 upstream을 선택하고, 같은 조건의 여러 URL 또는 `host:port` 주소에 라운드 로빈으로 요청을 분배한다. 설정 예제와 매칭 규칙은 [여러 upstream 라우팅](docs/reference/configuration.md#여러-upstream-라우팅)에 있다.
+
 Docker와 Docker Compose v2, GNU Make를 사용해 저장소 루트에서 빌드하고 검증한다. Docker 빌드 환경과 Go 모듈은 Go 1.27.2를 사용한다.
 
 ```sh

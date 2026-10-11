@@ -20,7 +20,7 @@ CLI 기본값은 YAML 또는 환경 변수 값을 덮어쓰지 않는다. 명시
 | 계층 | 책임 |
 | --- | --- |
 | `server` | API 리스너 주소, HTTP timeout, 헤더 크기, 종료 대기 시간 |
-| `upstream` | 고정 목적지 URL, 인증 헤더, 연결 풀과 upstream timeout |
+| `upstream` | 기본 목적지와 라우팅 규칙, 인증 헤더, 공유 연결 풀과 upstream timeout |
 | `rate_limit` | 활성화 여부, `memory` 또는 `redis` 전략, 요청 수와 토큰 사용량의 초당 보충량과 burst |
 | `rate_limit.redis` | Redis 주소, 인증, DB, 공용 key, TLS와 I/O timeout |
 | `telemetry` | 로그, Prometheus와 OpenTelemetry 설정, service resource와 export 종료 대기 시간 |
@@ -30,12 +30,14 @@ CLI 기본값은 YAML 또는 환경 변수 값을 덮어쓰지 않는다. 명시
 | `telemetry.metrics.prometheus` | Prometheus 활성화 여부, 별도 리스너 주소와 경로 |
 | `telemetry.logs` | 로그 활성화, 로그 레벨과 로컬 출력 형식 |
 
-모든 leaf 설정은 환경 변수와 CLI 인자로 변경할 수 있다. YAML의 점과 밑줄을 환경 변수에서는 밑줄로, CLI에서는 하이픈으로 연결한다.
+모든 leaf 설정은 환경 변수와 CLI 인자로 변경할 수 있다. 배열은 JSON 또는 YAML 배열 문자열로 전달하며 배열 전체를 교체한다. `upstream.routes` 내부 필드는 개별 인자 대신 배열에 포함한다. YAML의 점과 밑줄을 환경 변수에서는 밑줄로, CLI에서는 하이픈으로 연결한다.
 
 | YAML 키 | 환경 변수 | CLI |
 | --- | --- | --- |
 | `server.address` | `TOKEN_ROUTER_SERVER_ADDRESS` | `--server-address` |
-| `upstream.base_url` | `TOKEN_ROUTER_UPSTREAM_BASE_URL` | `--upstream-base-url` |
+| `upstream.base_urls` | `TOKEN_ROUTER_UPSTREAM_BASE_URLS` | `--upstream-base-urls` |
+| `upstream.routes` | `TOKEN_ROUTER_UPSTREAM_ROUTES` | `--upstream-routes` |
+| `upstream.max_routing_body_bytes` | `TOKEN_ROUTER_UPSTREAM_MAX_ROUTING_BODY_BYTES` | `--upstream-max-routing-body-bytes` |
 | `upstream.api_key` | `TOKEN_ROUTER_UPSTREAM_API_KEY` | `--upstream-api-key` |
 | `rate_limit.backend` | `TOKEN_ROUTER_RATE_LIMIT_BACKEND` | `--rate-limit-backend` |
 | `rate_limit.tokens_per_second` | `TOKEN_ROUTER_RATE_LIMIT_TOKENS_PER_SECOND` | `--rate-limit-tokens-per-second` |
@@ -62,13 +64,73 @@ TOKEN_ROUTER_SERVER_ADDRESS=127.0.0.1:8081 \
 
 불리언 인자는 `--telemetry-metrics-prometheus-enabled`처럼 값 없이 전달하면 `true`가 된다. `false`를 지정할 때는 `--telemetry-metrics-prometheus-enabled=false`처럼 등호를 사용한다. `TOKEN_ROUTER_CONFIG` 또는 `--config`에 빈 경로를 명시하면 오류다.
 
+## 여러 upstream 라우팅
+
+`upstream.routes`는 요청의 `Host` 헤더와 JSON 본문의 최상위 `model`을 목적지 배열에 연결한다. `base_urls`에는 `http` 또는 `https` URL과 `host:port` 주소를 함께 사용할 수 있다. scheme이 없는 주소에는 HTTP를 적용하며 포트가 필요하다. IPv6 주소는 `[::1]:9000`처럼 대괄호로 감싼다.
+
+```yaml
+upstream:
+  base_urls:
+    - "http://default-a:9000"
+    - "http://default-b:9000"
+  routes:
+    - host: "api.example.com"
+      model: "chat-model"
+      base_urls:
+        - "10.0.0.11:8000"
+        - "10.0.0.12:8000"
+    - host: "api.example.com"
+      model: "chat-model"
+      base_urls:
+        - "https://inference.example.com/gateway"
+    - host: "api.example.com"
+      base_urls:
+        - "http://host-default:8000"
+    - model: "embedding-model"
+      base_urls:
+        - "http://embedding-a:8000"
+        - "http://embedding-b:8000"
+```
+
+- `host`와 `model`을 모두 지정하면 두 조건을 모두 만족해야 한다. 생략하거나 빈 문자열로 지정한 조건은 모든 값에 매칭된다. 두 조건을 모두 생략한 규칙은 공통 기본 규칙이다. 각 규칙의 `base_urls`에는 하나 이상의 주소가 필요하다.
+- 지정한 조건 수가 많은 규칙이 우선한다. 따라서 `host`와 `model` 조합, 단일 조건, 공통 기본 규칙 순서다. 조건 수가 같은 서로 다른 규칙이 동시에 매칭되면 설정에서 먼저 나온 규칙을 선택한다.
+- `host`는 대소문자와 호스트명의 마지막 점을 무시한다. 설정에 포트가 없으면 요청의 포트를 무시하고, 포트가 있으면 해당 포트까지 비교한다. `X-Forwarded-Host`는 사용하지 않는다. wildcard, 정규식과 URL 형식의 조건은 지원하지 않는다.
+- `model`은 대소문자를 구분하는 문자열 완전 일치다. `model`이 없거나 `null`, 빈 문자열이면 모델 조건을 만족하지 않는다. 중첩된 `model`이나 `MODEL` 같은 다른 키는 사용하지 않는다.
+- 동일한 `host`와 `model` 조건을 여러 번 등록하면 주소 배열을 등록 순서대로 합친다. 위 예제의 `api.example.com` 및 `chat-model` 요청은 세 주소에 차례로 전달된다. 호스트 정규화 후 같은 조건도 합쳐진다.
+- 선택한 규칙의 주소들은 프로세스별 라운드 로빈으로 분배한다. 규칙마다 독립적인 순번을 사용하며 동시 요청에도 적용된다. 별도 health check, 가중치와 실패 시 다른 주소로의 재시도는 구현하지 않는다.
+
+규칙이 매칭되지 않으면 `upstream.base_urls`를 기본 풀로 사용한다. 기본값은 `["https://api.openai.com"]`이다. 단일 upstream도 주소 하나가 있는 배열로 설정한다. 여러 목적지에 조건 없이 분배할 때는 `base_urls`만 설정하면 된다.
+
+매칭되지 않은 요청을 거절하려면 `upstream.base_urls: []`로 기본 풀을 비워 둔다. 이 경우 매칭 규칙이 없으면 `404`와 `route_not_found`를 반환한다. 전체 설정에 목적지가 하나도 없으면 시작 시 검증에 실패한다.
+
+배열은 환경 변수와 CLI에서도 전달할 수 있다.
+
+```sh
+TOKEN_ROUTER_UPSTREAM_BASE_URLS='["10.0.0.11:8000","https://inference.example.com"]' \
+  go run ./src/cmd/token-router serve
+
+go run ./src/cmd/token-router serve \
+  --upstream-base-urls='[]' \
+  --upstream-routes='[{"host":"api.example.com","model":"chat-model","base_urls":["10.0.0.11:8000","10.0.0.12:8000"]}]'
+```
+
+### 모델 확인과 본문 크기
+
+요청 호스트에 적용 가능한 모델 조건이 있을 때만 본문을 확인한다. `Content-Type`이 없거나 `application/json`, `+json`으로 끝나는 미디어 타입이면 본문 전체를 읽고 최상위 `model`을 확인한 뒤 같은 바이트를 upstream에 전달한다. 메서드에 관계없이 적용하며 본문을 재직렬화하거나 모델명을 변경하지 않는다. Host 조건만 사용하는 요청은 본문을 미리 읽지 않는다.
+
+모델 확인에 사용할 본문 크기는 `upstream.max_routing_body_bytes`로 제한하며 기본값은 `8388608`(8 MiB)이다. 양수여야 하며 `Content-Length` 유무에 관계없이 적용한다. 모델 확인 대상이 제한을 넘으면 `413`과 `routing_body_too_large`, 유효하지 않은 JSON 객체이면 `400`과 `invalid_request_body`, `model`이 문자열 또는 `null`이 아니면 `400`과 `invalid_model`을 반환한다. 빈 본문은 모델이 없는 요청으로 처리한다.
+
+모델 확인 대상 JSON의 `Content-Encoding`은 없거나 `identity`여야 한다. 압축된 본문은 `415`와 `unsupported_content_encoding`을 반환한다. multipart, form과 기타 비 JSON 본문에서는 모델을 추출하지 않으며 Host 조건 또는 기본 풀을 사용한다. 이미지와 오디오 API의 multipart 요청을 구분하려면 Host 조건을 사용한다.
+
+`server.read_timeout`은 본문 수신에도 적용된다. `upstream.request_timeout`이 설정되어 있으면 모델 확인 중의 본문 읽기를 포함해 요청을 제한한다. 요청 본문 확인 이후의 SSE 응답은 기존과 같이 전체 버퍼링 없이 전달한다.
+
 ## Upstream 경로와 인증
 
-기본 `upstream.base_url`은 `https://api.openai.com`이다. 수신한 `/v1/...` 경로를 목적지 URL의 base path 뒤에 붙인다. OpenAI로 연결할 때는 base URL에 `/v1`을 중복해서 넣지 않는다. 예를 들어 base URL이 `http://localhost:9000/gateway`이면 `/v1/models` 요청은 `/gateway/v1/models`로 전달된다.
+수신한 `/v1/...` 경로를 선택한 목적지 URL의 base path 뒤에 붙인다. OpenAI로 연결할 때는 base URL에 `/v1`을 중복해서 넣지 않는다. 예를 들어 base URL이 `http://localhost:9000/gateway`이면 `/v1/models` 요청은 `/gateway/v1/models`로 전달된다. upstream으로 전달하는 `Host`는 선택한 목적지의 호스트와 포트로 교체한다.
 
-base URL은 호스트가 있는 `http` 또는 `https` URL이어야 하며 사용자 정보, query 또는 fragment를 포함할 수 없다. `upstream.max_idle_conns`와 `upstream.max_idle_conns_per_host`는 양수다.
+목적지는 호스트가 있는 `http` 또는 `https` URL이나 `host:port` 주소여야 하며 사용자 정보, query 또는 fragment를 포함할 수 없다. 명시한 포트는 1부터 65535까지 허용한다. `upstream.max_idle_conns`와 `upstream.max_idle_conns_per_host`는 양수다. 모든 목적지는 transport와 연결 풀 설정을 공유한다.
 
-`upstream.api_key`가 비어 있으면 클라이언트의 `Authorization`을 전달한다. 값이 있으면 `Bearer <configured-key>`로 교체한다. `upstream.organization`과 `upstream.project`도 값이 있을 때 해당 OpenAI 헤더를 덮어쓴다. key와 password는 환경 변수로 주입할 수 있으며 저장소의 예시 YAML에는 실제 값을 기록하지 않는다.
+`upstream.api_key`가 비어 있으면 클라이언트의 `Authorization`을 전달한다. 값이 있으면 `Bearer <configured-key>`로 교체한다. `upstream.organization`과 `upstream.project`도 값이 있을 때 해당 OpenAI 헤더를 덮어쓴다. 이 인증 설정은 모든 라우팅 목적지에 공통으로 적용한다. key와 password는 환경 변수로 주입할 수 있으며 저장소의 예시 YAML에는 실제 값을 기록하지 않는다.
 
 ## Timeout과 스트리밍
 
@@ -129,7 +191,7 @@ rate_limit:
 
 ### OpenAI 응답의 사용량
 
-토큰 제한이 활성화되면 다음 경로의 성공한 `POST` 응답(HTTP `2xx`)에서 사용량을 읽는다. 경로는 `upstream.base_url`의 base path를 붙이기 전 수신한 요청을 기준으로 판단한다.
+토큰 제한이 활성화되면 다음 경로의 성공한 `POST` 응답(HTTP `2xx`)에서 사용량을 읽는다. 경로는 선택한 목적지의 base path를 붙이기 전 수신한 요청을 기준으로 판단한다. 라우팅 규칙과 목적지가 달라도 요청 수와 토큰 사용량 버킷은 공유한다.
 
 | API | 집계 경로 |
 | --- | --- |

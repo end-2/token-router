@@ -54,7 +54,7 @@ make lint
 make e2e
 ```
 
-`make test`는 race detector를 포함한 일반 Go 테스트를 실행한다. 설정 계층, 메모리와 Redis의 요청 수 및 토큰 사용량 버킷, HTTP 프록시, JSON과 SSE의 사용량 집계, SSE 전달, HTTP 상태 메트릭과 graceful shutdown을 검사한다. 일반 테스트는 로컬 테스트 upstream과 `miniredis`를 사용하므로 OpenAI API key나 외부 Redis 서버가 필요 없다.
+`make test`는 race detector를 포함한 일반 Go 테스트를 실행한다. 설정 계층, 메모리와 Redis의 요청 수 및 토큰 사용량 버킷, Host와 model 기반 라우팅, 동시 요청의 라운드 로빈 분배, HTTP 프록시, JSON과 SSE의 사용량 집계, SSE 전달, HTTP 상태 메트릭과 graceful shutdown을 검사한다. 일반 테스트는 로컬 테스트 upstream과 `miniredis`를 사용하므로 OpenAI API key나 외부 Redis 서버가 필요 없다.
 
 [`streaming_body_test.go`](../../src/internal/proxy/streaming_body_test.go)는 upstream transport의 마지막 요청 본문 읽기를 지연시킨 상태에서 SSE 응답을 시작해 본문 읽기와 스트림 전달이 모두 완료되는지 확인한다.
 

@@ -46,6 +46,8 @@ runner는 일반 빌드에서 생성한 실행 파일을 사용하고 Ginkgo 테
 | --- | --- |
 | 설정 우선순위 | upstream 인증이 기본값, YAML, 환경 변수, CLI 인자 순으로 적용되는지 확인 |
 | HTTP 전달 | 메서드, base URL 경로, query, 본문, OpenAI 조직과 프로젝트 헤더 및 upstream 오류 응답 보존 |
+| upstream 라우팅 | Host와 model 조건, 동일 조건의 URL 및 주소 배열 병합, 라운드 로빈과 기본 목적지 선택 |
+| 라우팅된 SSE | 모델 규칙으로 선택한 upstream의 점진적 SSE 전달과 공유 토큰 사용량 제한 |
 | 상태와 메트릭 | `/healthz`, `/readyz`, 별도 리스너의 사용자 지정 메트릭 경로와 Prometheus 요청 counter |
 | upstream timeout | 응답 헤더 대기 시간 초과 시 `504`와 `upstream_timeout` 오류, upstream 요청 취소 |
 | 메모리 버킷 | burst 소진 후 `429`와 `Retry-After`, 거절된 요청이 upstream에 전달되지 않는지 확인 |

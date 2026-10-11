@@ -10,7 +10,7 @@ Go module은 저장소 루트에 있고 애플리케이션 코드는 `src/` 아�
 | [`src/internal/cli`](../../src/internal/cli/root.go) | Cobra 명령과 명시적 인자 수집 |
 | [`src/internal/config`](../../src/internal/config/config.go) | 설정 계층 병합, 타입 변환과 검증 |
 | [`src/internal/app`](../../src/internal/app/app.go) | 의존성 생성, Echo 라우팅과 리스너 수명 관리 |
-| [`src/internal/proxy`](../../src/internal/proxy/proxy.go) | 표준 `httputil.ReverseProxy`, upstream 연결 풀과 OpenAI 응답 사용량 관찰 |
+| [`src/internal/proxy`](../../src/internal/proxy/proxy.go) | Host와 model 라우팅, 표준 `httputil.ReverseProxy`, upstream 연결 풀과 OpenAI 응답 사용량 관찰 |
 | [`src/internal/bucket`](../../src/internal/bucket/bucket.go) | `Limiter` 인터페이스와 memory, Redis 구현 |
 | [`src/internal/observability`](../../src/internal/observability/metrics.go) | 인스턴스별 Prometheus registry, OpenTelemetry providers와 JSON 로그 |
 
@@ -22,7 +22,11 @@ Echo가 `/v1`과 `/v1/*`를 프록시로 연결한다. 메서드, 본문, query�
 
 [`proxy.Handler.ServeHTTP`](../../src/internal/proxy/proxy.go)는 HTTP/1.x에서 `http.ResponseController.EnableFullDuplex`를 사용해 요청 본문 읽기와 응답 쓰기를 함께 허용한다. upstream transport가 요청 본문을 읽는 동안 응답 flush가 입력 본문을 닫지 않도록 한다.
 
-목적지는 설정의 고정 URL이다. `Forwarded`와 `X-Forwarded-*`는 제거하고 `HTTP_PROXY` 같은 프로세스 환경 변수로 목적지 경로를 변경하지 않는다. 애플리케이션 수준 재시도와 redirect 추적은 추가하지 않는다. 표준 `http.Transport`는 재사용 연결 실패 시 재전송 가능한 요청을 재시도할 수 있다. WebSocket과 HTTP protocol upgrade는 지원하지 않는다.
+[`proxy.router`](../../src/internal/proxy/routing.go)는 설정에 등록된 목적지 중 요청의 `Host`와 JSON 본문의 `model` 조건으로 풀을 선택한다. 조건 수가 많은 규칙이 우선하고, 같은 조건의 주소 배열은 하나의 풀로 합친다. 각 풀의 atomic counter가 동시 요청을 라운드 로빈으로 분배한다. 선택한 목적지는 요청 context에 저장하고 `ReverseProxy.Rewrite`에서 적용하며 모든 목적지는 같은 transport를 공유한다. 매칭 규칙이 없으면 기본 풀을 사용하고, 기본 풀도 없으면 `404`를 반환한다. 설정 형식과 우선순위는 [여러 upstream 라우팅](../reference/configuration.md#여러-upstream-라우팅)에 있다.
+
+모델 조건이 요청 호스트에 적용될 때 JSON 요청 본문을 `upstream.max_routing_body_bytes` 한도 안에서 읽고 원문으로 다시 전달한다. Host 조건만 쓰는 요청과 비 JSON 요청은 본문을 미리 읽지 않는다. 모델 확인 중 context가 취소되면 읽기 deadline으로 본문 수신을 중단한다. 응답의 SSE 전달과 사용량 집계는 선택한 목적지와 관계없이 같은 경로를 사용한다.
+
+`Forwarded`와 `X-Forwarded-*`는 제거하고 `HTTP_PROXY` 같은 프로세스 환경 변수로 목적지 경로를 변경하지 않는다. 애플리케이션 수준 재시도와 redirect 추적은 추가하지 않는다. 표준 `http.Transport`는 재사용 연결 실패 시 재전송 가능한 요청을 재시도할 수 있다. WebSocket과 HTTP protocol upgrade는 지원하지 않는다.
 
 응답 시작 전 연결 오류는 `502`, timeout은 `504`로 변환한다. upstream이 반환한 API 오류와 상태 코드는 그대로 전달한다. 응답 시작 후 전송 오류는 연결 종료로 표현된다. 자체 오류와 로그에 upstream URL, API key, 요청 본문을 기록하지 않는다.
 

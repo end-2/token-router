@@ -1,39 +1,41 @@
 # AGENTS.md
 
-이 문서는 저장소에서 작업하는 AI Agent의 공통 지침이다. 모든 답변, 문서, 코드 주석에 적용한다. 하위 디렉토리의 `AGENTS.md`는 해당 범위의 세부 지침을 추가할 수 있다.
+This document provides shared instructions for AI agents working in this repository. It applies to all responses, documents, and code comments. An `AGENTS.md` in a subdirectory may add instructions for its scope.
 
 ## 1. Searchable Writing
 
-- 검색하기 쉬운 일반적인 Markdown 형식을 사용한다. 제목, 문단, 숫자 목록, ASCII 하이픈(`-`) 목록을 기본으로 한다.
-- 중간점(U+00B7, U+318D)과 롱대시(U+2014)는 사용하지 않는다. 항목은 쉼표나 접속사로 연결하고, 부연 설명은 괄호 또는 별도 문장으로 작성한다.
-- 장식용 특수 문자와 불필요한 Unicode 구분자를 피한다. 기술 설명에 필요한 기호는 사용할 수 있다.
-- 같은 개념에는 같은 용어를 사용한다. 검색할 핵심 용어를 이모지, 임의의 약어, 장식 문자로 대체하지 않는다.
-- 함수명, 타입명, 설정 키, 환경 변수, 파일 경로는 코드에 정의된 표기 그대로 작성하고 백틱으로 감싼다.
-- 제목과 파일명은 내용을 설명하는 안정적인 이름을 사용한다. 일반 문서 파일명은 소문자 영문과 ASCII 하이픈을 기본으로 하고, `README.md`와 `AGENTS.md`는 기존 표기를 유지한다.
-- 텍스트 검색에는 `rg`를 우선 사용하고, 사용할 수 없으면 `grep`을 사용한다. 단어 검색에는 `rg -n -w 'keyword' docs/`와 같은 형태를 사용할 수 있다.
+- Write repository documentation, code comments, and human-readable project text in English. Preserve exact identifiers, protocol values, and intentional non-English test data needed to verify behavior.
+- Respond to the user in their preferred language. The English requirement applies to repository content, not conversational responses.
+- Use standard Markdown that is easy to search. Prefer headings, paragraphs, numbered lists, and lists with ASCII hyphens (`-`).
+- Do not use middle dots (U+00B7 or U+318D) or em dashes (U+2014). Connect items with commas or conjunctions, and use parentheses or separate sentences for additional explanation.
+- Avoid decorative special characters and unnecessary Unicode separators. Symbols needed for technical explanations are allowed.
+- Use consistent terminology for the same concept. Do not replace searchable terms with emoji, arbitrary abbreviations, or decorative characters.
+- Write function names, types, configuration keys, environment variables, and file paths exactly as defined in the code, enclosed in backticks.
+- Use stable, descriptive headings and filenames. Use lowercase English words and ASCII hyphens for ordinary document filenames, while retaining `README.md` and `AGENTS.md`.
+- Prefer `rg` for text searches, falling back to `grep` when unavailable. For whole-word searches, use a command such as `rg -n -w 'keyword' docs/`.
 
 ## 2. Current State and Git Tracking
 
-- 일반 문서와 코드 주석은 현재 코드, 설정, 동작을 설명한다. 실제로 구현되지 않은 기능이나 검증되지 않은 동작을 현재 사실처럼 작성하지 않는다.
-- 문서와 주석에는 저장소에서 Git으로 관리하는 코드, 설정, 공통 절차에 관한 내용만 작성한다. 일반적인 개념 설명과 누구나 재현할 수 있는 예시는 포함할 수 있다.
-- 새 문서와 예시는 Git으로 관리할 산출물로 작성한다. 로컬 파일이 있다는 사실만으로 저장소의 공통 동작이나 절차라고 판단하지 않는다.
-- 개인 사용자명, 개인 절대 경로, 특정 개발자의 환경 설정, 로컬 실행 결과, 버전 관리 대상이 아닌 파일에 의존하는 절차는 공통 문서와 주석에 넣지 않는다.
-- 경로는 저장소 기준 상대 경로를 사용하고, 환경별 값은 자리표시자 또는 저장소에서 정의한 설정 키로 표현한다.
-- 주석은 현재 구현의 의도, 제약, 불변 조건처럼 코드만으로 이해하기 어려운 내용을 설명한다. 변경 일자, 작업자, 이전 구현, 수정 경과를 기록하지 않는다.
-- 변경 이유와 전후 차이, 수정 경과는 Git commit 메시지에 기록한다. 문서와 주석에 변경 로그를 누적하지 않는다.
-- 별도 이력 문서가 필요한 경우에만 `docs/history/`에 보관한다. 이 문서는 이력 기록임을 명시하고 기록 시점과 관련 commit을 연결한다.
-- 현재 동작을 이해하는 데 필요한 설명은 일반 문서에 유지한다. 독자가 현재 동작을 파악하려고 이력 문서를 따라가야 하는 구조를 만들지 않는다.
+- Ordinary documentation and code comments describe the current code, configuration, and behavior. Do not describe unimplemented features or unverified behavior as established facts.
+- Document only Git-tracked code, configuration, and shared procedures. General explanations and examples that anyone can reproduce are allowed.
+- Create new documentation and examples as artifacts intended for Git tracking. The existence of a local file does not establish a shared repository behavior or procedure.
+- Do not include personal usernames, personal absolute paths, developer-specific settings, local execution results, or procedures that depend on untracked files in shared documentation or comments.
+- Use repository-relative paths. Express environment-specific values as placeholders or configuration keys defined in the repository.
+- Comments explain implementation intent, constraints, and invariants that are difficult to understand from code alone. Do not record modification dates, authors, earlier implementations, or progress history.
+- Record reasons for changes, before-and-after differences, and progress history in Git commit messages. Do not accumulate change logs in documentation or comments.
+- Use `docs/history/` only when a separate historical document is necessary. Identify it as a historical record and link the recording date and relevant commit.
+- Keep explanations needed to understand current behavior in ordinary documentation. Readers should not need to follow historical documents to understand the current implementation.
 
 ## 3. Documentation Structure and Maintenance
 
-- 문서 보관 디렉토리는 `docs/`를 사용한다. 새로운 문서는 이 디렉토리 아래에서 주제별로 관리한다.
-- 루트 `README.md`는 프로젝트 소개와 문서 진입점으로, `AGENTS.md`는 에이전트 지침으로 유지한다.
-- 루트 `README.md`의 본문은 짧은 프로젝트 개요, 최소한의 시작 안내와 주요 문서 링크로 구성한다. 기능별 상세 동작, 설정 키와 예제, API 명세, 운영 절차와 제약은 `docs/`의 해당 주제 문서에서 관리한다.
-- 새 기능이나 설정을 추가할 때 루트 `README.md`에 설명 문단을 자동으로 덧붙이지 않는다. 먼저 해당 주제의 상세 문서를 갱신하고, 진입점이 필요한 경우에만 `README.md`에 상대 링크와 한 줄 설명을 추가하거나 수정한다.
-- 상세 문서의 설명과 명령어를 루트 `README.md`에 중복 작성하지 않는다. README를 축약할 때는 제거할 내용이 상세 문서에 있는지 확인하고, 빠진 내용은 해당 문서에 보완한 뒤 링크로 연결한다.
-- 전체 문서 목록은 `docs/README.md`에서 관리한다. 루트 `README.md`에는 문서 목차 링크와 처음 사용하는 독자에게 필요한 주요 링크만 두며 전체 목차를 복제하지 않는다.
-- 문서를 추가할 때 `docs/README.md`를 문서 목차로 만들거나 갱신한다. 루트 `README.md`에서 목차로 연결한다.
-- 필요한 디렉토리만 생성한다. 다음 구조는 주제별 배치 예시이며, 빈 디렉토리나 내용 없는 문서를 미리 만들지 않는다.
+- Store documentation in `docs/`, organized by topic.
+- Keep the root `README.md` as the project introduction and documentation entry point, and `AGENTS.md` as the agent instructions.
+- The root `README.md` contains a short project overview, minimal getting-started guidance, and links to key documents. Maintain detailed feature behavior, configuration keys and examples, API specifications, operational procedures, and constraints in the relevant documents under `docs/`.
+- When adding features or configuration, do not automatically append explanatory paragraphs to the root `README.md`. Update the detailed topic document first, then add or revise a relative link and a one-line description in `README.md` only if an entry point is needed.
+- Do not duplicate detailed explanations or commands in the root `README.md`. When shortening it, check that removed content exists in detailed documentation, fill any gaps there, and link to it.
+- Maintain the complete documentation index in `docs/README.md`. The root `README.md` links to that index and key documents for new readers without duplicating the entire index.
+- When adding a document, create or update `docs/README.md` as the documentation index. Link to it from the root `README.md`.
+- Create only necessary directories. The following is an example topic structure; do not create empty directories or placeholder documents in advance.
 
 ```text
 docs/
@@ -45,28 +47,28 @@ docs/
   history/
 ```
 
-- 한 문서는 하나의 주요 주제를 다룬다. 중복 설명은 줄이고, 상세 내용을 관리하는 문서로 상대 링크를 제공한다.
-- 코드, 인터페이스, 설정, 실행 절차를 변경하면 영향을 받는 문서와 주석을 같은 작업에서 갱신한다.
-- 새 동작만 덧붙이지 말고 더 이상 유효하지 않은 설명, 예제, 링크를 수정하거나 제거한다.
-- 문서를 이동하거나 이름을 바꾸면 목차와 해당 문서를 참조하는 링크도 갱신한다.
-- 명령어, 설정 키, 파일 경로, 예시는 현재 저장소와 일치하는지 확인한다. 검증할 수 없는 내용은 확정적인 사용 안내로 작성하지 않는다.
+- Each document covers one main topic. Reduce duplicate explanations and provide relative links to the documents that maintain the details.
+- When changing code, interfaces, configuration, or execution procedures, update affected documentation and comments in the same task.
+- Revise or remove obsolete explanations, examples, and links instead of only appending new behavior.
+- When moving or renaming a document, update the index and all links that reference it.
+- Check that commands, configuration keys, file paths, and examples match the current repository. Do not present unverifiable content as definitive usage guidance.
 
 ## 4. Code-Based Reasoning
 
-- 구현 동작에 대한 판단과 추론은 실제 코드를 우선 근거로 삼는다. 함수명, 주석, 기존 문서만으로 동작을 단정하지 않는다.
-- 먼저 저장소의 관련 구현, 호출 경로, 설정, 테스트를 확인한다. 필요하면 의존성의 실제 구현까지 추적한다.
-- 외부 라이브러리나 시스템 동작이 판단에 영향을 주면 해당 프로젝트의 공식 오픈소스 코드를 적극적으로 참고한다. 운영체제와 관련된 판단에는 필요한 범위의 kernel source code를 확인한다.
-- 의존성 버전, 플랫폼, 빌드 옵션, 실행 조건을 확인하고 작업 대상과 일치하는 소스를 사용한다. 최신 소스의 동작을 다른 버전에 그대로 적용하지 않는다.
-- 외부 근거를 인용할 때 저장소 URL, 파일 경로, 심볼과 확인한 버전, 태그 또는 commit을 함께 남긴다. 가능하면 해당 revision을 고정한 링크를 사용한다.
-- 중요한 결론은 구현을 확인하고 필요한 테스트, 최소 재현 또는 실행 관찰로 검증한다. 테스트 통과가 보장하는 범위를 넘어 일반화하지 않는다.
-- 코드에서 확인한 사실과 추론을 구분한다. 근거가 부족하면 가정과 미확인 조건을 밝히고 추가로 확인할 대상을 제시한다.
-- 설명에 필요한 근거는 현재 코드 위치와 연결한다. 과거 구현의 경과는 commit 또는 `docs/history/`에서 관리한다.
+- Base judgments and inferences about implementation behavior primarily on actual code. Do not infer behavior solely from function names, comments, or existing documentation.
+- First inspect relevant implementations, call paths, configuration, and tests. Follow dependencies into their actual implementations when necessary.
+- When external libraries or systems affect a judgment, consult their official open-source implementations. For operating-system behavior, inspect the relevant kernel source code when needed.
+- Check dependency versions, platforms, build options, and execution conditions, and use matching sources. Do not apply behavior from the latest source unchanged to a different version.
+- When citing external evidence, include the repository URL, file path, symbol, and verified version, tag, or commit. Prefer links pinned to that revision.
+- Verify important conclusions through implementation inspection and appropriate tests, minimal reproductions, or runtime observations. Do not generalize beyond what passing tests establish.
+- Distinguish facts verified in code from inferences. When evidence is insufficient, state assumptions and unverified conditions and identify what needs further inspection.
+- Link supporting evidence to current code locations. Maintain implementation history in commits or `docs/history/`.
 
 ## 5. Agent Workflow
 
-1. 작업 범위의 `AGENTS.md`, 문서 목차, 관련 코드와 Git 상태를 확인한다.
-2. 요구사항과 현재 구현의 차이를 파악하고, 판단에 필요한 코드 근거를 확인한다.
-3. 필요한 변경을 수행한다. 기존 사용자 변경을 보존하고 요청 범위를 벗어난 수정은 피한다.
-4. 영향받는 일반 문서와 주석을 현재 상태에 맞게 갱신한다. 이력이 필요하면 별도 보관한다.
-5. 변경 성격에 맞는 검증을 수행한다. 문서만 변경한 경우에는 경로, 링크, 용어, 형식과 설명의 정확성을 확인한다.
-6. 결과를 보고할 때 변경 내용, 근거, 검증 결과와 남은 미확인 사항을 간결하게 설명한다. 실행하지 않은 검증을 완료했다고 보고하지 않는다.
+1. Inspect the applicable `AGENTS.md`, documentation index, relevant code, and Git status.
+2. Identify differences between requirements and the current implementation, and inspect the code evidence needed for decisions.
+3. Make the necessary changes. Preserve existing user changes and avoid edits outside the requested scope.
+4. Update affected ordinary documentation and comments to reflect the current state. Store historical records separately if needed.
+5. Validate according to the change. For documentation-only changes, check paths, links, terminology, formatting, and factual accuracy.
+6. Report changes, evidence, validation results, and remaining unverified conditions concisely. Do not claim to have completed checks that were not run.

@@ -13,6 +13,7 @@
 
 ## 운영
 
+- [분산 memory rate limit](operations/distributed-rate-limiting.md): Redis 없는 Raft 클러스터, admin 포트 기반 peer 발견, 계정별 공유 잔액과 복구
 - [Policy 설정과 admin API](operations/policy-configuration.md): upstream과 제한값 분리, 파일 감시, 전용 admin 리스너와 설정 저장
 - [OpenTelemetry 관측 구성](operations/observability.md): JSON 로그, metrics와 tracing 설정, 수집 경로와 조회
 

@@ -107,4 +107,13 @@ TOKEN_ROUTER_TEST_REDIS_ADDR=127.0.0.1:16379 \
 
 OpenTelemetry export는 `telemetry.otlp.enabled=true`로 활성화한다. 실행 예시와 Collector 연결 방법은 [OpenTelemetry 관측 구성](../operations/observability.md)에 있다.
 
-메인 설정과 환경 변수는 시작할 때 읽는다. upstream과 rate limit 수치는 별도 `policy.file`의 파일 감시 또는 전용 admin API로 변경할 수 있다. 실행 명령, 파일 저장 권한과 API 예제는 [Policy 설정과 admin API](../operations/policy-configuration.md)에 있다. backend 전략, 리스너와 telemetry 설정을 바꾸면 프로세스를 재시작해야 한다.
+메인 설정과 환경 변수는 시작할 때 읽는다. upstream과 rate limit 수치는 별도 `policy.file`의 파일 감시 또는 전용 admin API로 변경할 수 있다. 실행 명령, 파일 저장 권한과 API 예제는 [Policy 설정과 admin API](../operations/policy-configuration.md)에 있다. backend 전략, 분산 memory 클러스터, 리스너와 telemetry 설정을 바꾸면 프로세스를 재시작해야 한다.
+
+## 분산 memory와 계정 제한 검증
+
+분산 memory 구성은 [분산 memory rate limit](../operations/distributed-rate-limiting.md), Basic과 Bearer 식별자 설정은 [계정별 제한](../reference/configuration.md#계정별-제한)을 따른다. 일반 Go 테스트는 실제 HTTP admin 포트의 3개 Raft 노드로 공유 한도, leader 교체, 과반수 상실과 영속 로그 및 snapshot 복구를 검사한다. 외부 Redis나 별도 클러스터는 필요하지 않다.
+
+```sh
+go test -race ./src/internal/bucket -run TestDistributed
+go test -race ./src/internal/app ./src/internal/bucket -run TestAccount
+```

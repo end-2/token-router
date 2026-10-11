@@ -8,7 +8,7 @@
 2. YAML 파일
 3. `TOKEN_ROUTER_` 접두사의 환경 변수
 4. 명시적으로 전달한 CLI 인자
-5. `policy.file`이 지정되면 해당 파일의 upstream과 rate limit 수치 설정
+5. `policy.file`이 지정되면 해당 파일의 upstream과 rate limit 수치와 계정 설정
 
 `--config`가 있으면 해당 파일을 읽는다. 이 인자가 없으면 `TOKEN_ROUTER_CONFIG`, 이후 현재 작업 디렉토리의 `config.yaml` 순서로 경로를 결정한다. 암시적인 `config.yaml`이 없을 때는 기본값으로 계속 진행한다. 인자 또는 환경 변수로 지정한 파일이 없거나 읽을 수 없으면 시작하지 않는다.
 
@@ -16,16 +16,18 @@ CLI 기본값은 YAML 또는 환경 변수 값을 덮어쓰지 않는다. 명시
 
 ## 설정 계층
 
-고정 설정은 [`config.yaml`](../../config.yaml), upstream과 rate limit 수치 설정은 [`policy.yaml`](../../policy.yaml)에 있다. `config.yaml`의 `policy.file`이 policy 파일을 지정한다. 계층별 책임은 다음과 같다.
+고정 설정은 [`config.yaml`](../../config.yaml), upstream과 rate limit 수치와 계정 설정은 [`policy.yaml`](../../policy.yaml)에 있다. `config.yaml`의 `policy.file`이 policy 파일을 지정한다. 계층별 책임은 다음과 같다.
 
 | 계층 | 책임 |
 | --- | --- |
 | `server` | API 리스너 주소, HTTP timeout, 헤더 크기, 종료 대기 시간 |
 | `admin` | 선택적인 전용 admin API 리스너 활성화와 주소 |
-| `policy` | upstream과 rate limit 수치 설정을 저장하는 별도 파일과 내용 검사 간격 |
+| `policy` | upstream과 rate limit 수치와 계정 설정을 저장하는 별도 파일과 내용 검사 간격 |
 | `upstream` (`policy.yaml`) | 기본 목적지와 라우팅 규칙, 인증 헤더, 공유 연결 풀과 upstream timeout |
-| `rate_limit` (`config.yaml`) | 활성화 여부, `memory` 또는 `redis` 전략과 Redis 연결 설정 |
-| `rate_limit` (`policy.yaml`) | 요청 수와 토큰 사용량의 초당 보충량과 burst |
+| `rate_limit` (`config.yaml`) | 활성화 여부, `memory` 또는 `redis` 전략, 분산 memory와 Redis 연결 설정 |
+| `rate_limit` (`policy.yaml`) | 요청 수와 토큰 사용량의 초당 보충량과 burst, 계정 식별 |
+| `rate_limit.memory.distributed` | Raft 활성화, 자신과 peer의 `IP:admin-port`, 영속 경로, 내부 인증 token과 timeout |
+| `rate_limit.account` (`policy.yaml`) | 계정별 제한 활성화와 Bearer JWT 식별자 claim |
 | `rate_limit.redis` | Redis 주소, 인증, DB, 공용 key, TLS와 I/O timeout |
 | `telemetry` | 로그, Prometheus와 OpenTelemetry 설정, service resource와 export 종료 대기 시간 |
 | `telemetry.otlp` | OTLP 전송 활성화, 세 신호가 공유하는 HTTP base URL과 전송 timeout |
@@ -48,6 +50,9 @@ CLI 기본값은 YAML 또는 환경 변수 값을 덮어쓰지 않는다. 명시
 | `rate_limit.backend` | `TOKEN_ROUTER_RATE_LIMIT_BACKEND` | `--rate-limit-backend` |
 | `rate_limit.tokens_per_second` | `TOKEN_ROUTER_RATE_LIMIT_TOKENS_PER_SECOND` | `--rate-limit-tokens-per-second` |
 | `rate_limit.token_burst` | `TOKEN_ROUTER_RATE_LIMIT_TOKEN_BURST` | `--rate-limit-token-burst` |
+| `rate_limit.account.enabled` | `TOKEN_ROUTER_RATE_LIMIT_ACCOUNT_ENABLED` | `--rate-limit-account-enabled` |
+| `rate_limit.account.jwt_claim` | `TOKEN_ROUTER_RATE_LIMIT_ACCOUNT_JWT_CLAIM` | `--rate-limit-account-jwt-claim` |
+| `rate_limit.memory.distributed.enabled` | `TOKEN_ROUTER_RATE_LIMIT_MEMORY_DISTRIBUTED_ENABLED` | `--rate-limit-memory-distributed-enabled` |
 | `rate_limit.redis.address` | `TOKEN_ROUTER_RATE_LIMIT_REDIS_ADDRESS` | `--rate-limit-redis-address` |
 | `telemetry.otlp.enabled` | `TOKEN_ROUTER_TELEMETRY_OTLP_ENABLED` | `--telemetry-otlp-enabled` |
 | `telemetry.otlp.endpoint` | `TOKEN_ROUTER_TELEMETRY_OTLP_ENDPOINT` | `--telemetry-otlp-endpoint` |
@@ -193,9 +198,38 @@ rate_limit:
 
 토큰은 요청을 허용할 때 미리 추정하거나 예약하지 않고 upstream 응답의 사용량을 확인한 뒤 차감한다. 사용량이 잔액이나 `rate_limit.token_burst`를 넘으면 음수 잔액으로 기록하며, 초당 보충으로 잔액이 1 이상 회복될 때까지 다음 요청을 차단한다. 이미 허용된 요청과 동시에 진행 중인 스트림은 계속 처리하므로 이 설정은 진행 중인 요청까지 포함한 엄격한 토큰 상한이 아니다. 예를 들어 잔액이 60,000일 때 허용한 요청에서 70,000 토큰을 사용하면 다음 요청은 10,001 토큰이 보충될 때까지 거부된다.
 
+### 계정별 제한
+
+기본값 `rate_limit.account.enabled: false`는 하나의 전역 버킷을 사용한다. `policy.yaml`에서 다음 설정을 활성화하면 계정마다 별도의 요청 수 버킷과 토큰 사용량 버킷을 만든다. 기존 `requests_per_second`, `burst`, `tokens_per_second`, `token_burst` 수치를 모든 계정에 동일하게 적용한다. 계정별 개별 수치와 계정 버킷 위에 추가로 적용하는 전역 상한은 제공하지 않는다.
+
+```yaml
+rate_limit:
+  requests_per_second: 10
+  burst: 20
+  tokens_per_second: 1000
+  token_burst: 60000
+  account:
+    enabled: true
+    jwt_claim: sub
+```
+
+`Authorization` 헤더의 인증 scheme은 대소문자를 구분하지 않는다.
+
+- Basic은 Base64로 디코딩한 `id:password`에서 첫 번째 콜론 앞의 `id`를 사용한다. 비밀번호가 달라도 ID가 같으면 같은 계정이다.
+- Bearer는 점으로 나뉜 세 부분의 JWT 형태를 요구한다. 두 번째 부분을 Base64URL로 디코딩하고, 최상위 JSON 객체에서 `jwt_claim`으로 지정한 문자열을 사용한다. 기본값은 `sub`이며 `account_id`나 `user_id`처럼 다른 claim 이름을 지정할 수 있다. 중첩 경로, 숫자와 객체 claim은 지원하지 않는다. 토큰의 다른 필드가 바뀌어도 선택한 claim이 같으면 같은 계정이다.
+- 두 인증 scheme에서 추출한 식별자 문자열이 같으면 같은 버킷을 사용한다. issuer와 인증 scheme을 별도 namespace로 추가하지 않는다. 대소문자와 앞뒤 공백은 정규화하지 않는다.
+
+헤더가 없거나 여러 `Authorization` 헤더가 들어온 경우, 지원하지 않는 scheme, 잘못된 인코딩, 식별자 누락은 `401`과 `rate_limit_account_required`로 거부한다. 식별자는 공백만으로 이루어질 수 없으며 제어 문자가 없는 UTF-8 문자열이고 최대 1,024바이트여야 한다. 인증 헤더는 최대 16 KiB까지 계정 추출에 사용한다. 익명 전역 버킷으로 우회하지 않는다. `rate_limit.enabled: false`이면 계정 추출도 수행하지 않는다.
+
+이 기능은 식별자 추출만 수행한다. Basic 비밀번호와 JWT 서명, issuer, audience, 만료 시각은 검증하지 않는다. 검증되지 않은 JWT payload는 클라이언트가 식별자를 바꿀 수 있으므로, 계정별 상한을 신뢰하려면 앞단 인증 계층이 같은 헤더를 검증해야 한다. `upstream.api_key`가 설정되어 있어도 계정은 upstream 헤더 교체 전 수신한 `Authorization`에서 결정한다.
+
+backend에는 식별자의 SHA-256 해시를 전달하며 Basic 비밀번호, JWT 원문과 식별자 원문을 저장 키로 사용하지 않는다. Redis 계정 키는 `rate_limit.redis.key` 뒤에 `:account:<hash>`를 붙인다. memory와 분산 memory는 계정별 상태를 관리하며, 완전히 보충된 유휴 상태를 정리하고 남은 토큰 부채는 유지한다.
+
+응답 사용량은 요청 허용 당시의 계정에 기록한다. 스트리밍 도중 `account.enabled`나 `jwt_claim`이 변경되어도 해당 요청의 계정은 바뀌지 않는다. 계정 설정 변경은 새 요청부터 적용하며 기존 전역 잔액을 각 계정으로 나누거나 서로 다른 식별자의 잔액을 합치지 않는다. 제한값과 계정 설정은 [policy 파일과 admin API](../operations/policy-configuration.md)로 변경할 수 있다.
+
 ### OpenAI 응답의 사용량
 
-토큰 제한이 활성화되면 다음 경로의 성공한 `POST` 응답(HTTP `2xx`)에서 사용량을 읽는다. 경로는 선택한 목적지의 base path를 붙이기 전 수신한 요청을 기준으로 판단한다. 라우팅 규칙과 목적지가 달라도 요청 수와 토큰 사용량 버킷은 공유한다.
+토큰 제한이 활성화되면 다음 경로의 성공한 `POST` 응답(HTTP `2xx`)에서 사용량을 읽는다. 경로는 선택한 목적지의 base path를 붙이기 전 수신한 요청을 기준으로 판단한다. 라우팅 규칙과 목적지가 달라도 같은 계정의 요청 수와 토큰 사용량 버킷은 공유한다. 계정 제한이 꺼져 있으면 전역 버킷을 공유한다.
 
 | API | 집계 경로 |
 | --- | --- |
@@ -219,8 +253,8 @@ Responses의 비동기 실행에서 최초 `POST`가 사용량 없이 반환되�
 
 ### 저장소와 오류 처리
 
-`memory`는 프로세스마다 독립적이다. `redis`는 같은 DB와 `rate_limit.redis.key`를 사용하는 프로세스끼리 요청 수와 토큰 사용량을 공유하며 Redis 서버 시간을 사용한다. 공유하는 인스턴스는 같은 제한값을 설정해야 한다. Redis key는 음수 잔액을 포함해 모든 버킷을 완전히 채울 수 있는 유휴 시간이 지난 뒤 만료된다. 사용량 차감으로 보충 시간이 지원 가능한 기간을 넘으면 부채를 보존하기 위해 key를 만료시키지 않는다.
+`memory`는 기본적으로 프로세스마다 독립적이다. `rate_limit.memory.distributed.enabled: true`이면 Raft로 여러 노드의 잔액을 공유한다. admin 포트의 `IP:port` 목록, 영속 데이터와 과반수 운영 규칙은 [분산 memory rate limit](../operations/distributed-rate-limiting.md)에 있다. `redis`는 같은 DB와 `rate_limit.redis.key`를 사용하는 프로세스끼리 요청 수와 토큰 사용량을 공유하며 Redis 서버 시간을 사용한다. 공유하는 인스턴스는 같은 제한값을 설정해야 한다. Redis key는 음수 잔액을 포함해 모든 버킷을 완전히 채울 수 있는 유휴 시간이 지난 뒤 만료된다. 사용량 차감으로 보충 시간이 지원 가능한 기간을 넘으면 부채를 보존하기 위해 key를 만료시키지 않는다.
 
-요청 허용 판단 중 Redis 오류가 발생하면 `503`을 반환한다. 이미 시작한 응답에서 사용량을 기록하다 실패하면 응답을 변경하지 않고 경고 로그를 남긴다. 결과가 불명확한 차감을 중복 적용하지 않도록 자동으로 재시도하지 않으므로 저장소 오류 동안 사용량이 누락될 수 있다.
+요청 허용 판단 중 Redis 또는 분산 memory 오류가 발생하면 `503`을 반환한다. 이미 시작한 응답에서 사용량을 기록하다 실패하면 응답을 변경하지 않고 경고 로그를 남긴다. 결과가 불명확한 차감을 중복 적용하지 않도록 자동으로 재시도하지 않으므로 저장소 오류 동안 사용량이 누락될 수 있다.
 
-`rate_limit.enabled=false`이면 Redis 연결과 사용량 관찰 없이 두 제한을 모두 비활성화한다. 활성화 여부, backend 선택과 Redis 연결 설정은 시작할 때 결정한다. upstream과 rate limit 수치 설정은 [Policy 설정과 admin API](../operations/policy-configuration.md)를 통해 실행 중 변경할 수 있다.
+`rate_limit.enabled=false`이면 Redis 연결, Raft 노드 생성과 사용량 관찰 없이 두 제한을 모두 비활성화한다. 활성화 여부, backend 선택, 분산 memory와 Redis 연결 설정은 시작할 때 결정한다. upstream과 rate limit 수치와 계정 설정은 [Policy 설정과 admin API](../operations/policy-configuration.md)를 통해 실행 중 변경할 수 있다.

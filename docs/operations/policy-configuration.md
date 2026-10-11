@@ -1,6 +1,6 @@
 # Policy 설정과 admin API
 
-`upstream` 전체와 rate limit의 수치 설정은 `policy.yaml`에서 관리하고 실행 중 교체할 수 있다. 파일 감시와 전용 admin API는 같은 검증과 적용 경로를 사용한다. 저장소의 `config.yaml`은 `policy.file: policy.yaml`로 파일 감시를 활성화하며 admin 리스너는 기본적으로 비활성화한다.
+`upstream` 전체와 rate limit의 수치와 계정 설정은 `policy.yaml`에서 관리하고 실행 중 교체할 수 있다. 파일 감시와 전용 admin API는 같은 검증과 적용 경로를 사용한다. 저장소의 `config.yaml`은 `policy.file: policy.yaml`로 파일 감시를 활성화하며 admin 리스너는 기본적으로 비활성화한다.
 
 ## 설정 분리
 
@@ -33,9 +33,12 @@ rate_limit:
   burst: 20
   tokens_per_second: 1000
   token_burst: 60000
+  account:
+    enabled: true
+    jwt_claim: sub
 ```
 
-`upstream`은 목적지, Host와 model 라우팅, API key, 조직과 프로젝트 헤더, timeout과 연결 풀 설정을 모두 지원한다. `rate_limit`은 `requests_per_second`, `burst`, `tokens_per_second`, `token_burst`만 지원한다. `rate_limit.enabled`, `rate_limit.backend`, `rate_limit.redis`와 다른 최상위 설정은 메인 설정에 고정한다. 이 필드를 policy 파일이나 admin 요청에 넣으면 거부한다.
+`upstream`은 목적지, Host와 model 라우팅, API key, 조직과 프로젝트 헤더, timeout과 연결 풀 설정을 모두 지원한다. `rate_limit`은 `requests_per_second`, `burst`, `tokens_per_second`, `token_burst`, `account.enabled`, `account.jwt_claim`을 지원한다. 계정 식별 규칙은 [계정별 제한](../reference/configuration.md#계정별-제한)에 있다. `rate_limit.enabled`, `rate_limit.backend`, `rate_limit.memory`, `rate_limit.redis`와 다른 최상위 설정은 메인 설정에 고정한다. 이 필드를 policy 파일이나 admin 요청에 넣으면 거부한다.
 
 `policy.file`의 상대 경로는 메인 설정 파일의 디렉토리를 기준으로 해석한다. 파일 경로와 감시 간격 자체는 시작할 때 고정한다. `policy.watch_interval`은 양수여야 하며 기본값은 `1s`다. 다음 CLI와 환경 변수도 사용할 수 있다.
 
@@ -60,9 +63,9 @@ go run ./src/cmd/token-router serve --config config.yaml --admin-enabled
 
 지정한 policy 파일이 시작 시 없거나 유효하지 않으면 시작에 실패한다. 시작 후 파일이 삭제되거나 읽기, 구문 또는 값 검증에 실패하면 마지막 정상 설정으로 계속 처리하고 경고 로그를 남긴다. 파일이 복구되면 감시가 계속 적용한다. 파일과 admin 요청 본문 크기는 각각 1 MiB 이하로 제한한다. 빈 파일은 오류이며 기본값만 적용하려면 `{}`를 사용한다.
 
-교체할 내용을 다른 파일에 완성한 뒤 같은 파일시스템에서 rename하면 작성 중인 중간 내용이 노출되는 것을 피할 수 있다. 설정은 전체 검증 후 적용하며, upstream과 제한값 중 일부가 잘못되면 둘 다 바뀌지 않는다. upstream 변경은 새 요청부터 적용한다. 진행 중인 응답과 SSE는 기존 upstream에서 계속 처리하고, 완료된 이전 연결 풀은 정리한다. rate limit 수치만 변경하면 upstream 연결 풀과 라운드 로빈 순번을 유지한다. 토큰 사용량 관찰의 활성 상태가 바뀌면 새 프록시를 생성한다.
+교체할 내용을 다른 파일에 완성한 뒤 같은 파일시스템에서 rename하면 작성 중인 중간 내용이 노출되는 것을 피할 수 있다. 설정은 전체 검증 후 적용하며, upstream과 제한값 중 일부가 잘못되면 둘 다 바뀌지 않는다. upstream 변경은 새 요청부터 적용한다. 진행 중인 응답과 SSE는 기존 upstream에서 계속 처리하고, 완료된 이전 연결 풀은 정리한다. rate limit 수치나 계정 식별 설정만 변경하면 upstream 연결 풀과 라운드 로빈 순번을 유지한다. 토큰 사용량 관찰의 활성 상태가 바뀌면 새 프록시를 생성한다.
 
-버킷 구현과 Redis client는 교체하지 않는다. 활성화된 버킷의 수치를 바꿀 때 잔액을 가득 채우지 않으며, 용량 축소는 양수 잔액에 상한을 적용하고 음수 토큰 잔액은 유지한다. memory는 변경 시점까지 기존 보충량으로 잔액을 계산한다. Redis는 다음 Lua 호출부터 새 값으로 잔액, 이전 호출 이후의 보충량과 TTL을 계산하며, 설정 변경 자체는 Redis key를 수정하지 않는다. 같은 Redis key를 공유하는 프로세스에는 같은 설정을 배포해야 하며 admin API는 수신한 프로세스의 설정과 파일만 수정한다.
+버킷 구현과 Redis client는 교체하지 않는다. 활성화된 버킷의 수치를 바꿀 때 잔액을 가득 채우지 않으며, 용량 축소는 양수 잔액에 상한을 적용하고 음수 토큰 잔액은 유지한다. 로컬 memory는 변경 시점까지 기존 보충량으로 잔액을 계산한다. Redis는 다음 Lua 호출부터 새 값으로 잔액, 이전 호출 이후의 보충량과 TTL을 계산하며, 설정 변경 자체는 Redis key를 수정하지 않는다. Redis 또는 분산 memory를 공유하는 프로세스에는 같은 제한값과 계정 설정을 배포해야 하며 admin API는 수신한 프로세스의 설정과 파일만 수정한다. 분산 memory는 다음 명령 적용 시 해당 계정의 기존 보충량으로 잔액을 계산한 뒤 새 값을 적용한다. 자세한 내용은 [분산 memory rate limit](distributed-rate-limiting.md)에 있다.
 
 `tokens_per_second`와 `token_burst`를 모두 `0`으로 설정하면 토큰 사용량 제한을 끈다. 다시 켤 때는 두 값을 모두 양수로 지정한다. 사용량 관찰 여부는 요청이 선택한 프록시에 따르고, 관찰한 사용량은 기록 시점의 버킷 설정으로 처리한다. 토큰 제한이 꺼져 있을 때 시작한 스트림의 사용량을 나중에 소급해서 수집하지 않는다.
 
@@ -99,4 +102,6 @@ curl --fail -X PUT http://127.0.0.1:9091/config \
 
 API 저장에는 일반 파일과 디렉토리 쓰기 권한이 필요하다. symlink 파일은 감시만 지원하며 API 저장은 거부한다. 읽기 전용 마운트나 단일 파일 bind mount처럼 rename이 불가능한 위치에서도 저장은 실패한다. 컨테이너에서 API 저장을 사용하려면 쓰기 가능한 디렉토리를 마운트하고 실행 UID에 디렉토리 쓰기 권한을 부여한다. `policy.file`이 비어 있으면 API 변경은 해당 프로세스 메모리에만 남는다.
 
-Admin API는 인증 기능을 제공하지 않고 응답에 `upstream.api_key`를 포함한다. 기본 loopback 주소를 사용하거나 접근을 제한한 관리 네트워크에서 사용한다. 컨테이너 외부로 연결하려면 `--admin-address=:9091`을 명시하고 필요한 호스트 포트만 공개한다.
+`/config` API는 인증 기능을 제공하지 않고 응답에 `upstream.api_key`를 포함한다. 기본 loopback 주소를 사용하거나 접근을 제한한 관리 네트워크에서 사용한다. 컨테이너 외부로 연결하려면 `--admin-address=:9091`을 명시하고 필요한 호스트 포트만 공개한다.
+
+분산 memory를 활성화하면 같은 admin 포트에 `/internal/rate-limit/` 경로를 등록한다. 내부 경로는 공유 token으로 인증하지만 `/config`의 접근 권한에는 영향을 주지 않는다. peer 간 통신을 위해 admin 리스너를 공개할 때도 관리 네트워크의 접근 제한을 유지한다.

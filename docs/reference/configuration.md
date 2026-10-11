@@ -1,44 +1,44 @@
-# 애플리케이션 설정
+# Application configuration
 
-## 적용 순서
+## Application order
 
-설정 우선순위는 다음과 같다. 뒤쪽 값이 앞쪽 값을 덮어쓴다.
+Configuration precedence follows this order. Later values override earlier ones.
 
-1. [`config.Defaults`](../../src/internal/config/config.go)의 기본값
-2. YAML 파일
-3. `TOKEN_ROUTER_` 접두사의 환경 변수
-4. 명시적으로 전달한 CLI 인자
-5. `policy.file`이 지정되면 해당 파일의 upstream과 rate limit 수치와 계정 설정
+1. Defaults from [`config.Defaults`](../../src/internal/config/config.go)
+2. YAML file
+3. Environment variables with the `TOKEN_ROUTER_` prefix
+4. Explicit CLI arguments
+5. Upstream settings, rate limit values, and account settings from `policy.file`, when specified
 
-`--config`가 있으면 해당 파일을 읽는다. 이 인자가 없으면 `TOKEN_ROUTER_CONFIG`, 이후 현재 작업 디렉토리의 `config.yaml` 순서로 경로를 결정한다. 암시적인 `config.yaml`이 없을 때는 기본값으로 계속 진행한다. 인자 또는 환경 변수로 지정한 파일이 없거나 읽을 수 없으면 시작하지 않는다.
+If `--config` is provided, that file is read. Otherwise, the path comes from `TOKEN_ROUTER_CONFIG`, then `config.yaml` in the current working directory. A missing implicit `config.yaml` allows startup with defaults. A missing or unreadable file explicitly selected by an argument or environment variable prevents startup.
 
-CLI 기본값은 YAML 또는 환경 변수 값을 덮어쓰지 않는다. 명시적인 `false`, `0`, 빈 문자열은 해당 설정이 허용하는 범위에서 적용한다. YAML의 알 수 없는 필드, 중복 키, `null`, 다중 문서, 잘못된 타입과 duration은 오류다. 빈 파일도 오류이며 기본값만 사용하려면 `{}`를 작성한다. 설정값을 출력하는 명령은 제공하지 않으며 파싱 오류에 비밀 값을 포함하지 않는다.
+CLI defaults do not override YAML or environment values. Explicit `false`, `0`, and empty strings apply where allowed by each setting. Unknown YAML fields, duplicate keys, `null`, multiple documents, invalid types, and invalid durations are errors. Empty files are also errors; use `{}` for defaults only. No command prints configuration values, and parsing errors exclude secrets.
 
-## 설정 계층
+## Configuration hierarchy
 
-고정 설정은 [`config.yaml`](../../config.yaml), upstream과 rate limit 수치와 계정 설정은 [`policy.yaml`](../../policy.yaml)에 있다. `config.yaml`의 `policy.file`이 policy 파일을 지정한다. 계층별 책임은 다음과 같다.
+Fixed settings are in [`config.yaml`](../../config.yaml); upstream settings, rate limit values, and account settings are in [`policy.yaml`](../../policy.yaml). `policy.file` in `config.yaml` selects the policy file. Responsibilities are:
 
-| 계층 | 책임 |
+| Layer | Responsibility |
 | --- | --- |
-| `server` | API 리스너 주소, HTTP timeout, 헤더 크기, 종료 대기 시간 |
-| `admin` | 선택적인 전용 admin API 리스너 활성화와 주소 |
-| `policy` | upstream과 rate limit 수치와 계정 설정을 저장하는 별도 파일과 내용 검사 간격 |
-| `upstream` (`policy.yaml`) | 기본 목적지와 라우팅 규칙, 인증 헤더, 공유 연결 풀과 upstream timeout |
-| `rate_limit` (`config.yaml`) | 활성화 여부, `memory` 또는 `redis` 전략, 분산 memory와 Redis 연결 설정 |
-| `rate_limit` (`policy.yaml`) | 요청 수와 토큰 사용량의 초당 보충량과 burst, 계정 식별 |
-| `rate_limit.memory.distributed` | Raft 활성화, 자신과 peer의 `IP:admin-port`, 영속 경로, 내부 인증 token과 timeout |
-| `rate_limit.account` (`policy.yaml`) | 계정별 제한 활성화와 Bearer JWT 식별자 claim |
-| `rate_limit.redis` | Redis 주소, 인증, DB, 공용 key, TLS와 I/O timeout |
-| `telemetry` | 로그, Prometheus와 OpenTelemetry 설정, service resource와 export 종료 대기 시간 |
-| `telemetry.otlp` | OTLP 전송 활성화, 세 신호가 공유하는 HTTP base URL과 전송 timeout |
-| `telemetry.traces` | trace export 활성화와 root trace sampling 비율 |
-| `telemetry.metrics` | 메트릭 활성화와 OTLP 전송 주기 |
-| `telemetry.metrics.prometheus` | Prometheus 활성화 여부, 별도 리스너 주소와 경로 |
-| `telemetry.logs` | 로그 활성화, 로그 레벨과 로컬 출력 형식 |
+| `server` | API listener address, HTTP timeouts, header size, and shutdown wait time |
+| `admin` | Optional dedicated admin API listener activation and address |
+| `policy` | Separate file for upstream settings, rate limit values, and account settings, plus the content check interval |
+| `upstream` (`policy.yaml`) | Default destinations and routing rules, authentication headers, shared connection pools, and upstream timeouts |
+| `rate_limit` (`config.yaml`) | Activation, `memory` or `redis` backend, distributed memory and Redis connections |
+| `rate_limit` (`policy.yaml`) | Per-second request and token refill rates, bursts, and account identification |
+| `rate_limit.memory.distributed` | Raft activation, local and peer `IP:admin-port`, persistent paths, internal authentication token, and timeout |
+| `rate_limit.account` (`policy.yaml`) | Per-account limit activation and Bearer JWT identifier claim |
+| `rate_limit.redis` | Redis address, authentication, DB, shared key, TLS, and I/O timeouts |
+| `telemetry` | Logs, Prometheus and OpenTelemetry settings, service resources, and export shutdown wait time |
+| `telemetry.otlp` | OTLP export activation, shared HTTP base URL for all three signals, and export timeout |
+| `telemetry.traces` | Trace export activation and root trace sampling ratio |
+| `telemetry.metrics` | Metric activation and OTLP export interval |
+| `telemetry.metrics.prometheus` | Prometheus activation, separate listener address, and path |
+| `telemetry.logs` | Log activation, level, and local output format |
 
-모든 leaf 설정은 환경 변수와 CLI 인자로 변경할 수 있다. 배열은 JSON 또는 YAML 배열 문자열로 전달하며 배열 전체를 교체한다. `upstream.routes` 내부 필드는 개별 인자 대신 배열에 포함한다. YAML의 점과 밑줄을 환경 변수에서는 밑줄로, CLI에서는 하이픈으로 연결한다.
+All leaf settings can be changed through environment variables and CLI arguments. Arrays use JSON or YAML array strings and are replaced in full. Fields inside `upstream.routes` belong in the array rather than individual arguments. YAML dots and underscores become underscores in environment variables and hyphens in CLI arguments.
 
-| YAML 키 | 환경 변수 | CLI |
+| YAML key | Environment variable | CLI |
 | --- | --- | --- |
 | `server.address` | `TOKEN_ROUTER_SERVER_ADDRESS` | `--server-address` |
 | `policy.file` | `TOKEN_ROUTER_POLICY_FILE` | `--policy-file` |
@@ -66,18 +66,18 @@ CLI 기본값은 YAML 또는 환경 변수 값을 덮어쓰지 않는다. 명시
 | `telemetry.logs.level` | `TOKEN_ROUTER_TELEMETRY_LOGS_LEVEL` | `--telemetry-logs-level` |
 | `telemetry.logs.format` | `TOKEN_ROUTER_TELEMETRY_LOGS_FORMAT` | `--telemetry-logs-format` |
 
-`go run ./src/cmd/token-router --help`는 전체 CLI와 대응 환경 변수 이름을 보여준다. 다음 명령은 policy 파일 사용을 끄고 메인 YAML, 환경 변수의 주소와 CLI의 burst를 적용한다. policy 파일을 사용하면 파일에 명시한 값이 CLI보다 우선한다.
+`go run ./src/cmd/token-router --help` shows the full CLI and corresponding environment variable names. The following disables the policy file and applies main YAML settings, the environment address, and the CLI burst. With a policy file enabled, explicit file values override CLI values.
 
 ```sh
 TOKEN_ROUTER_SERVER_ADDRESS=127.0.0.1:8081 \
   go run ./src/cmd/token-router serve --config config.yaml --policy-file= --rate-limit-burst 50
 ```
 
-불리언 인자는 `--telemetry-metrics-prometheus-enabled`처럼 값 없이 전달하면 `true`가 된다. `false`를 지정할 때는 `--telemetry-metrics-prometheus-enabled=false`처럼 등호를 사용한다. `TOKEN_ROUTER_CONFIG` 또는 `--config`에 빈 경로를 명시하면 오류다.
+Boolean arguments without values, such as `--telemetry-metrics-prometheus-enabled`, set `true`. Use an equals sign for `false`, as in `--telemetry-metrics-prometheus-enabled=false`. An explicitly empty `TOKEN_ROUTER_CONFIG` or `--config` path is an error.
 
-## 여러 upstream 라우팅
+## Multiple upstream routing
 
-`policy.yaml`의 `upstream.routes`는 요청의 `Host` 헤더와 JSON 본문의 최상위 `model`을 목적지 배열에 연결한다. `base_urls`에는 `http` 또는 `https` URL과 `host:port` 주소를 함께 사용할 수 있다. scheme이 없는 주소에는 HTTP를 적용하며 포트가 필요하다. IPv6 주소는 `[::1]:9000`처럼 대괄호로 감싼다.
+`upstream.routes` in `policy.yaml` maps the request `Host` header and the JSON body's top-level `model` to destination arrays. `base_urls` accepts both `http` or `https` URLs and `host:port` addresses. Addresses without a scheme use HTTP and require a port. Enclose IPv6 addresses in brackets, such as `[::1]:9000`.
 
 ```yaml
 upstream:
@@ -103,18 +103,18 @@ upstream:
         - "http://embedding-b:8000"
 ```
 
-- `host`와 `model`을 모두 지정하면 두 조건을 모두 만족해야 한다. 생략하거나 빈 문자열로 지정한 조건은 모든 값에 매칭된다. 두 조건을 모두 생략한 규칙은 공통 기본 규칙이다. 각 규칙의 `base_urls`에는 하나 이상의 주소가 필요하다.
-- 지정한 조건 수가 많은 규칙이 우선한다. 따라서 `host`와 `model` 조합, 단일 조건, 공통 기본 규칙 순서다. 조건 수가 같은 서로 다른 규칙이 동시에 매칭되면 설정에서 먼저 나온 규칙을 선택한다.
-- `host`는 대소문자와 호스트명의 마지막 점을 무시한다. 설정에 포트가 없으면 요청의 포트를 무시하고, 포트가 있으면 해당 포트까지 비교한다. `X-Forwarded-Host`는 사용하지 않는다. wildcard, 정규식과 URL 형식의 조건은 지원하지 않는다.
-- `model`은 대소문자를 구분하는 문자열 완전 일치다. `model`이 없거나 `null`, 빈 문자열이면 모델 조건을 만족하지 않는다. 중첩된 `model`이나 `MODEL` 같은 다른 키는 사용하지 않는다.
-- 동일한 `host`와 `model` 조건을 여러 번 등록하면 주소 배열을 등록 순서대로 합친다. 위 예제의 `api.example.com` 및 `chat-model` 요청은 세 주소에 차례로 전달된다. 호스트 정규화 후 같은 조건도 합쳐진다.
-- 선택한 규칙의 주소들은 프로세스별 라운드 로빈으로 분배한다. 규칙마다 독립적인 순번을 사용하며 동시 요청에도 적용된다. 별도 health check, 가중치와 실패 시 다른 주소로의 재시도는 구현하지 않는다.
+- When both `host` and `model` are specified, both must match. Omitted or empty conditions match all values. Rules omitting both conditions are shared defaults. Each rule's `base_urls` must contain at least one address.
+- Rules with more specified conditions take precedence: combined `host` and `model`, then single conditions, then shared defaults. If distinct rules with the same condition count both match, the first configured rule wins.
+- `host` ignores case and a trailing hostname dot. Without a configured port, the request port is ignored; with a configured port, it is also compared. `X-Forwarded-Host` is not used. Wildcards, regular expressions, and URL-form conditions are unsupported.
+- `model` uses exact, case-sensitive string matching. Missing, `null`, or empty `model` values do not satisfy model conditions. Nested `model` fields and other keys such as `MODEL` are not used.
+- Repeated identical `host` and `model` conditions merge address arrays in registration order. In the example, `api.example.com` requests for `chat-model` cycle through three addresses. Conditions identical after host normalization are also merged.
+- Addresses in the selected rule use per-process round robin. Each rule has an independent counter that also applies to concurrent requests. Separate health checks, weights, and retries to other addresses after failure are not implemented.
 
-규칙이 매칭되지 않으면 `upstream.base_urls`를 기본 풀로 사용한다. 기본값은 `["https://api.openai.com"]`이다. 단일 upstream도 주소 하나가 있는 배열로 설정한다. 여러 목적지에 조건 없이 분배할 때는 `base_urls`만 설정하면 된다.
+If no rule matches, `upstream.base_urls` supplies the default pool, defaulting to `["https://api.openai.com"]`. Even a single upstream uses a one-element array. Set only `base_urls` to distribute requests across destinations without conditions.
 
-매칭되지 않은 요청을 거절하려면 `upstream.base_urls: []`로 기본 풀을 비워 둔다. 이 경우 매칭 규칙이 없으면 `404`와 `route_not_found`를 반환한다. 전체 설정에 목적지가 하나도 없으면 시작 시 검증에 실패한다.
+To reject unmatched requests, empty the default pool with `upstream.base_urls: []`. Requests without a matching rule then return `404` and `route_not_found`. Configuration with no destinations anywhere fails startup validation.
 
-배열은 환경 변수와 CLI에서도 전달할 수 있다. 다음 예제는 policy 파일을 끄고 시작 설정으로 배열을 전달한다.
+Arrays can also be supplied through environment variables and CLI arguments. These examples disable the policy file and supply arrays through startup configuration.
 
 ```sh
 TOKEN_ROUTER_UPSTREAM_BASE_URLS='["10.0.0.11:8000","https://inference.example.com"]' \
@@ -125,66 +125,66 @@ go run ./src/cmd/token-router serve --policy-file= \
   --upstream-routes='[{"host":"api.example.com","model":"chat-model","base_urls":["10.0.0.11:8000","10.0.0.12:8000"]}]'
 ```
 
-### 모델 확인과 본문 크기
+### Model inspection and body size
 
-요청 호스트에 적용 가능한 모델 조건이 있을 때만 본문을 확인한다. `Content-Type`이 없거나 `application/json`, `+json`으로 끝나는 미디어 타입이면 본문 전체를 읽고 최상위 `model`을 확인한 뒤 같은 바이트를 upstream에 전달한다. 메서드에 관계없이 적용하며 본문을 재직렬화하거나 모델명을 변경하지 않는다. Host 조건만 사용하는 요청은 본문을 미리 읽지 않는다.
+Bodies are inspected only when model conditions can apply to the request host. If `Content-Type` is absent, `application/json`, or a media type ending in `+json`, the entire body is read to inspect the top-level `model`, then the same bytes are forwarded upstream. This applies regardless of method; bodies are not reserialized and model names are not changed. Requests using only Host conditions are not read in advance.
 
-모델 확인에 사용할 본문 크기는 `upstream.max_routing_body_bytes`로 제한하며 기본값은 `8388608`(8 MiB)이다. 양수여야 하며 `Content-Length` 유무에 관계없이 적용한다. 모델 확인 대상이 제한을 넘으면 `413`과 `routing_body_too_large`, 유효하지 않은 JSON 객체이면 `400`과 `invalid_request_body`, `model`이 문자열 또는 `null`이 아니면 `400`과 `invalid_model`을 반환한다. 빈 본문은 모델이 없는 요청으로 처리한다.
+`upstream.max_routing_body_bytes` limits bodies used for model inspection and defaults to `8388608` (8 MiB). It must be positive and applies regardless of `Content-Length`. Oversized inspection bodies return `413` and `routing_body_too_large`; invalid JSON objects return `400` and `invalid_request_body`; a `model` that is neither a string nor `null` returns `400` and `invalid_model`. An empty body is treated as a request without a model.
 
-모델 확인 대상 JSON의 `Content-Encoding`은 없거나 `identity`여야 한다. 압축된 본문은 `415`와 `unsupported_content_encoding`을 반환한다. multipart, form과 기타 비 JSON 본문에서는 모델을 추출하지 않으며 Host 조건 또는 기본 풀을 사용한다. 이미지와 오디오 API의 multipart 요청을 구분하려면 Host 조건을 사용한다.
+JSON bodies inspected for models must have no `Content-Encoding` or use `identity`. Compressed bodies return `415` and `unsupported_content_encoding`. Models are not extracted from multipart, form, or other non-JSON bodies; those use Host conditions or the default pool. Use Host conditions to distinguish multipart image and audio API requests.
 
-`server.read_timeout`은 본문 수신에도 적용된다. `upstream.request_timeout`이 설정되어 있으면 모델 확인 중의 본문 읽기를 포함해 요청을 제한한다. 요청 본문 확인 이후의 SSE 응답은 기존과 같이 전체 버퍼링 없이 전달한다.
+`server.read_timeout` also applies to body reception. If configured, `upstream.request_timeout` bounds the request including body reads during model inspection. After request body inspection, SSE responses continue to be forwarded without full buffering.
 
-## Upstream 경로와 인증
+## Upstream paths and authentication
 
-수신한 `/v1/...` 경로를 선택한 목적지 URL의 base path 뒤에 붙인다. OpenAI로 연결할 때는 base URL에 `/v1`을 중복해서 넣지 않는다. 예를 들어 base URL이 `http://localhost:9000/gateway`이면 `/v1/models` 요청은 `/gateway/v1/models`로 전달된다. upstream으로 전달하는 `Host`는 선택한 목적지의 호스트와 포트로 교체한다.
+The incoming `/v1/...` path is appended to the selected destination URL's base path. When connecting to OpenAI, do not duplicate `/v1` in the base URL. For example, with base URL `http://localhost:9000/gateway`, `/v1/models` is forwarded as `/gateway/v1/models`. The forwarded `Host` is replaced with the selected destination's host and port.
 
-목적지는 호스트가 있는 `http` 또는 `https` URL이나 `host:port` 주소여야 하며 사용자 정보, query 또는 fragment를 포함할 수 없다. 명시한 포트는 1부터 65535까지 허용한다. `upstream.max_idle_conns`와 `upstream.max_idle_conns_per_host`는 양수다. 모든 목적지는 transport와 연결 풀 설정을 공유한다.
+Destinations must be `http` or `https` URLs with a host, or `host:port` addresses, and cannot contain user information, queries, or fragments. Explicit ports range from 1 to 65535. `upstream.max_idle_conns` and `upstream.max_idle_conns_per_host` must be positive. All destinations share transport and connection pool settings.
 
-`upstream.api_key`가 비어 있으면 클라이언트의 `Authorization`을 전달한다. 값이 있으면 `Bearer <configured-key>`로 교체한다. `upstream.organization`과 `upstream.project`도 값이 있을 때 해당 OpenAI 헤더를 덮어쓴다. 이 인증 설정은 모든 라우팅 목적지에 공통으로 적용한다. key와 password는 환경 변수로 주입할 수 있으며 저장소의 예시 YAML에는 실제 값을 기록하지 않는다.
+An empty `upstream.api_key` forwards the client's `Authorization`; a configured value replaces it with `Bearer <configured-key>`. Nonempty `upstream.organization` and `upstream.project` also override the corresponding OpenAI headers. These authentication settings apply to all routing destinations. Keys and passwords can be injected through environment variables; example YAML in the repository contains no actual values.
 
-## Timeout과 스트리밍
+## Timeouts and streaming
 
-duration 값은 `500ms`, `10s`, `2m`, `0s` 같은 Go duration 문자열을 사용한다. 음수는 허용하지 않는다.
+Durations use Go duration strings such as `500ms`, `10s`, `2m`, and `0s`. Negative values are rejected.
 
-- `server.read_header_timeout`: 클라이언트 요청 헤더 수신 시간이다.
-- `server.read_timeout`: 요청 본문 수신까지 포함하는 시간이다. 기본값 `0s`는 전체 읽기 제한을 비활성화한다.
-- `server.write_timeout`: 응답 쓰기 시간이다. 기본값 `0s`는 긴 SSE 응답을 허용한다.
-- `server.idle_timeout`: 클라이언트 keep-alive 연결의 다음 요청 대기 시간이다.
-- `server.shutdown_timeout`: 종료 시 활성 요청을 기다리는 총 시간이며 양수여야 한다.
-- `upstream.dial_timeout`: TCP 연결과 TLS handshake 제한이다.
-- `upstream.response_header_timeout`: upstream 응답 헤더 대기 시간이다.
-- `upstream.request_timeout`: 전체 요청과 SSE 스트림을 포함하는 제한이다. 기본값 `0s`는 비활성화한다.
-- `upstream.idle_conn_timeout`: upstream 유휴 연결 유지 시간이다.
-- `rate_limit.redis.dial_timeout`, `read_timeout`, `write_timeout`: Redis 연결과 I/O 제한이다. Redis 전략에서는 양수여야 하며 각 명령에는 이 세 값의 최댓값을 총 제한 시간으로 추가 적용한다.
+- `server.read_header_timeout`: time allowed to receive client request headers.
+- `server.read_timeout`: time allowed through request body reception. The default `0s` disables the overall read limit.
+- `server.write_timeout`: time allowed to write responses. The default `0s` permits long SSE responses.
+- `server.idle_timeout`: time waiting for the next request on a client keep-alive connection.
+- `server.shutdown_timeout`: total wait for active requests during shutdown; must be positive.
+- `upstream.dial_timeout`: TCP connection and TLS handshake limit.
+- `upstream.response_header_timeout`: wait for upstream response headers.
+- `upstream.request_timeout`: overall request limit including SSE streams. The default `0s` disables it.
+- `upstream.idle_conn_timeout`: upstream idle connection lifetime.
+- `rate_limit.redis.dial_timeout`, `read_timeout`, `write_timeout`: Redis connection and I/O limits. All must be positive for the Redis backend; each command also has a total limit equal to the maximum of these three values.
 
-전체 요청 timeout은 응답을 이미 시작한 SSE에도 적용된다. 응답 헤더를 보낸 뒤 오류가 발생하면 HTTP 상태 코드를 바꿀 수 없으므로 연결을 종료한다.
+Overall request timeouts also apply to SSE responses already started. After response headers have been sent, an error cannot change the HTTP status code, so the connection closes.
 
-## Telemetry 설정
+## Telemetry configuration
 
-관측 설정은 모두 `telemetry` 하위에 둔다. `telemetry.otlp.enabled`는 OTLP 전송만 제어하며 기본값은 `false`다. `telemetry.metrics.enabled`와 `telemetry.logs.enabled`는 각각 메트릭과 로그를 제어하며 기본값은 모두 `true`다. 기본 설정에서는 OTLP exporter를 만들지 않고 Prometheus 리스너와 JSON stderr 로그를 사용한다. OTLP 전송을 켜면 활성화된 신호를 Collector에도 전송한다. `telemetry.traces.enabled`의 기본값은 `true`이며 tracing은 OTLP 전송도 활성화되어 있을 때 동작한다.
+All observability settings live under `telemetry`. `telemetry.otlp.enabled` controls only OTLP export and defaults to `false`. `telemetry.metrics.enabled` and `telemetry.logs.enabled` control metrics and logs respectively and both default to `true`. Defaults create no OTLP exporters and use a Prometheus listener and JSON stderr logs. Enabling OTLP also sends enabled signals to the Collector. `telemetry.traces.enabled` defaults to `true`, and tracing operates when OTLP export is also enabled.
 
-Prometheus 리스너는 메트릭이 활성화되어 있을 때 `telemetry.metrics.prometheus.enabled`로 제어하며 기본값은 `true`다. 주소와 경로는 `telemetry.metrics.prometheus.address`, `telemetry.metrics.prometheus.path`로 설정하며 기본값은 `127.0.0.1:9090`, `/metrics`다. `telemetry.otlp.enabled=false`여도 Prometheus를 사용할 수 있다. `telemetry.metrics.enabled=false`이면 Prometheus registry와 리스너, OTLP metric exporter를 모두 생성하지 않는다.
+With metrics enabled, `telemetry.metrics.prometheus.enabled` controls the Prometheus listener and defaults to `true`. `telemetry.metrics.prometheus.address` and `telemetry.metrics.prometheus.path` default to `127.0.0.1:9090` and `/metrics`. Prometheus works even with `telemetry.otlp.enabled=false`. With `telemetry.metrics.enabled=false`, no Prometheus registry, listener, or OTLP metric exporter is created.
 
-로그 레벨은 `telemetry.logs.level`로 설정하며 `debug`, `info`, `warn`, `error`를 지원한다. 기본값은 `info`다. 로컬 로그는 stderr에 기록하고 `telemetry.logs.format`으로 `json` 또는 `text`를 선택하며 기본값은 `json`이다. 로그 레벨은 로컬 출력과 OTLP 전송에 모두 적용한다. `telemetry.otlp.enabled=false`여도 로컬 로그를 사용할 수 있다. `telemetry.logs.enabled=false`이면 로컬 애플리케이션 로그와 OTLP log export를 모두 비활성화한다.
+`telemetry.logs.level` supports `debug`, `info`, `warn`, and `error`, defaulting to `info`. Local logs go to stderr, with `telemetry.logs.format` selecting `json` or `text` and defaulting to `json`. Levels apply to both local output and OTLP export. Local logs work even with `telemetry.otlp.enabled=false`. `telemetry.logs.enabled=false` disables both local application logs and OTLP log export.
 
-`telemetry.otlp.endpoint`는 `http://otel-collector:4318` 같은 OTLP HTTP base URL이다. 신호별 `/v1/traces`, `/v1/metrics`, `/v1/logs` 경로는 exporter에서 추가한다. `https`를 사용할 수 있으며 사용자 정보, query와 fragment는 허용하지 않는다. 전송 timeout의 기본값은 `5s`, 메트릭 전송 주기는 `15s`다.
+`telemetry.otlp.endpoint` is an OTLP HTTP base URL such as `http://otel-collector:4318`. Exporters append `/v1/traces`, `/v1/metrics`, and `/v1/logs`. The `https` scheme is supported; user information, queries, and fragments are rejected. The export timeout defaults to `5s`, and the metric export interval to `15s`.
 
-`telemetry.service_name`, `telemetry.service_version`, `telemetry.environment`는 모든 신호의 resource에 적용한다. 기본값은 각각 `token-router`, `dev`, `development`다. `telemetry.traces.sample_ratio`는 0 이상 1 이하의 유한한 값이며 기본값은 `1`이다. root trace에 비율을 적용하고 유효한 부모 span의 sampling 결정은 따른다.
+`telemetry.service_name`, `telemetry.service_version`, and `telemetry.environment` apply to resources for all signals and default to `token-router`, `dev`, and `development`. `telemetry.traces.sample_ratio` is a finite value from 0 to 1, defaulting to `1`. The ratio applies to root traces, while valid parent spans determine inherited sampling decisions.
 
-`telemetry.service_instance_id`가 비어 있으면 프로세스 시작마다 고유 ID를 생성한다. 직접 지정할 때는 실행 중인 인스턴스마다 다른 값을 사용한다. 이 값으로 같은 서비스의 여러 프로세스에서 전송한 메트릭을 구분한다.
+An empty `telemetry.service_instance_id` generates a unique ID on each process start. If specified manually, use a different value for each running instance. This distinguishes metrics from multiple processes of the same service.
 
-HTTP 요청 drain 이후 `telemetry.shutdown_timeout`까지 export를 마무리한다. 기본값은 `5s`다. 배포의 종료 대기 시간은 `server.shutdown_timeout`과 `telemetry.shutdown_timeout`의 합보다 길게 설정한다.
+After HTTP requests drain, export completes within `telemetry.shutdown_timeout`, defaulting to `5s`. Set deployment shutdown wait times longer than the sum of `server.shutdown_timeout` and `telemetry.shutdown_timeout`.
 
-JSON 로그, trace 연결과 수집 구성은 [OpenTelemetry 관측 구성](../operations/observability.md)을 참고한다.
+See [OpenTelemetry observability](../operations/observability.md) for JSON logs, trace correlation, and collection configuration.
 
-## 요청 수와 토큰 사용량 제한
+## Request count and token usage limits
 
-요청 수 버킷은 요청을 허용할 때마다 한 단위를 소비한다. `rate_limit.requests_per_second`는 초당 보충량, `rate_limit.burst`는 최대 요청 수다. `rate_limit.enabled=true`이면 두 값은 양수여야 한다.
+Request buckets consume one unit for every admitted request. `rate_limit.requests_per_second` is the refill rate, and `rate_limit.burst` the maximum request count. Both must be positive with `rate_limit.enabled=true`.
 
-토큰 사용량 버킷은 `rate_limit.tokens_per_second`와 `rate_limit.token_burst`로 설정한다. 기본값은 모두 `0`이며 요청 수만 제한한다. 토큰 제한을 사용하려면 초당 보충량인 `rate_limit.tokens_per_second`와 최대 토큰 수인 `rate_limit.token_burst`를 모두 양수로 설정한다. 한 값만 `0`으로 설정할 수 없다. burst는 정수이며 보충량은 소수도 허용한다. 보충량에는 `NaN`과 무한대를 사용할 수 없으며 활성 버킷의 전체 보충 시간은 Go `time.Duration`으로 표현할 수 있어야 한다.
+Token usage buckets use `rate_limit.tokens_per_second` and `rate_limit.token_burst`, both defaulting to `0` for request-only limiting. To enable token limits, set both the per-second refill rate `rate_limit.tokens_per_second` and capacity `rate_limit.token_burst` positive. Setting exactly one value to `0` is invalid. Bursts are integers; refill rates may be fractional. Refill rates cannot be `NaN` or infinite, and a full refill period for an active bucket must fit in Go `time.Duration`.
 
-`config.yaml`의 `rate_limit.enabled: true`와 `rate_limit.backend: memory`를 유지하고 다음 수치를 `policy.yaml`에 설정한다. 요청을 초당 10개씩 보충하고 최대 20개를 허용하며, 모델 토큰은 초당 1,000개씩 보충하고 최대 60,000개를 누적한다.
+Keep `rate_limit.enabled: true` and `rate_limit.backend: memory` in `config.yaml` and set these values in `policy.yaml`. Requests refill at 10 per second with a maximum of 20; model tokens refill at 1,000 per second with a maximum of 60,000.
 
 ```yaml
 rate_limit:
@@ -194,13 +194,13 @@ rate_limit:
   token_burst: 60000
 ```
 
-버킷은 가득 찬 상태에서 시작한다. 요청 수 잔액이 1 이상이고, 활성화된 토큰 사용량 잔액도 1 이상일 때 요청을 허용한다. 한쪽이 부족하면 요청 수를 차감하지 않고 `429`와 초 단위의 `Retry-After`를 반환한다. `Retry-After`는 두 잔액이 모두 회복되는 데 필요한 대기 시간을 올림한 값이며 Go `time.Duration`의 최대 범위로 제한한다. 대기열은 없으며 health, readiness와 메트릭은 제한을 소비하지 않는다.
+Buckets start full. Admission requires at least one request unit and, when enabled, at least one token unit. If either is insufficient, no request unit is deducted, and the response is `429` with `Retry-After` in seconds. `Retry-After` rounds up the wait until both balances recover, capped at the maximum Go `time.Duration`. There is no queue; health, readiness, and metrics do not consume limits.
 
-토큰은 요청을 허용할 때 미리 추정하거나 예약하지 않고 upstream 응답의 사용량을 확인한 뒤 차감한다. 사용량이 잔액이나 `rate_limit.token_burst`를 넘으면 음수 잔액으로 기록하며, 초당 보충으로 잔액이 1 이상 회복될 때까지 다음 요청을 차단한다. 이미 허용된 요청과 동시에 진행 중인 스트림은 계속 처리하므로 이 설정은 진행 중인 요청까지 포함한 엄격한 토큰 상한이 아니다. 예를 들어 잔액이 60,000일 때 허용한 요청에서 70,000 토큰을 사용하면 다음 요청은 10,001 토큰이 보충될 때까지 거부된다.
+Tokens are neither estimated nor reserved at admission; they are deducted after usage is observed in upstream responses. Usage exceeding the balance or `rate_limit.token_burst` produces a negative balance, blocking subsequent requests until refill restores at least one token. Already admitted requests and concurrent streams continue, so this is not a strict token cap covering in-progress requests. For example, a request admitted with 60,000 tokens that uses 70,000 blocks later requests until 10,001 tokens refill.
 
-### 계정별 제한
+### Per-account limits
 
-기본값 `rate_limit.account.enabled: false`는 하나의 전역 버킷을 사용한다. `policy.yaml`에서 다음 설정을 활성화하면 계정마다 별도의 요청 수 버킷과 토큰 사용량 버킷을 만든다. 기존 `requests_per_second`, `burst`, `tokens_per_second`, `token_burst` 수치를 모든 계정에 동일하게 적용한다. 계정별 개별 수치와 계정 버킷 위에 추가로 적용하는 전역 상한은 제공하지 않는다.
+The default `rate_limit.account.enabled: false` uses one global bucket. Enabling the following in `policy.yaml` creates separate request and token usage buckets per account. The same `requests_per_second`, `burst`, `tokens_per_second`, and `token_burst` values apply to every account. Individual account-specific values and an additional global cap above account buckets are not provided.
 
 ```yaml
 rate_limit:
@@ -213,48 +213,48 @@ rate_limit:
     jwt_claim: sub
 ```
 
-`Authorization` 헤더의 인증 scheme은 대소문자를 구분하지 않는다.
+Authentication schemes in `Authorization` are case-insensitive.
 
-- Basic은 Base64로 디코딩한 `id:password`에서 첫 번째 콜론 앞의 `id`를 사용한다. 비밀번호가 달라도 ID가 같으면 같은 계정이다.
-- Bearer는 점으로 나뉜 세 부분의 JWT 형태를 요구한다. 두 번째 부분을 Base64URL로 디코딩하고, 최상위 JSON 객체에서 `jwt_claim`으로 지정한 문자열을 사용한다. 기본값은 `sub`이며 `account_id`나 `user_id`처럼 다른 claim 이름을 지정할 수 있다. 중첩 경로, 숫자와 객체 claim은 지원하지 않는다. 토큰의 다른 필드가 바뀌어도 선택한 claim이 같으면 같은 계정이다.
-- 두 인증 scheme에서 추출한 식별자 문자열이 같으면 같은 버킷을 사용한다. issuer와 인증 scheme을 별도 namespace로 추가하지 않는다. 대소문자와 앞뒤 공백은 정규화하지 않는다.
+- Basic uses the `id` before the first colon in Base64-decoded `id:password`. The same ID identifies the same account even with different passwords.
+- Bearer requires a three-part, dot-separated JWT form. Its second part is Base64URL-decoded, and the string named by `jwt_claim` is read from the top-level JSON object. The default is `sub`; alternatives such as `account_id` or `user_id` are allowed. Nested paths, numeric claims, and object claims are unsupported. Changes to other token fields do not change the account if the selected claim is unchanged.
+- Identical identifier strings from either scheme share a bucket. Issuers and authentication schemes are not added as separate namespaces. Case and surrounding whitespace are not normalized.
 
-헤더가 없거나 여러 `Authorization` 헤더가 들어온 경우, 지원하지 않는 scheme, 잘못된 인코딩, 식별자 누락은 `401`과 `rate_limit_account_required`로 거부한다. 식별자는 공백만으로 이루어질 수 없으며 제어 문자가 없는 UTF-8 문자열이고 최대 1,024바이트여야 한다. 인증 헤더는 최대 16 KiB까지 계정 추출에 사용한다. 익명 전역 버킷으로 우회하지 않는다. `rate_limit.enabled: false`이면 계정 추출도 수행하지 않는다.
+Missing or multiple `Authorization` headers, unsupported schemes, invalid encoding, and missing identifiers return `401` and `rate_limit_account_required`. Identifiers must be UTF-8 strings without control characters, no more than 1,024 bytes, and not whitespace-only. Authentication headers up to 16 KiB are accepted for extraction. There is no fallback to an anonymous global bucket. With `rate_limit.enabled: false`, account extraction is also skipped.
 
-이 기능은 식별자 추출만 수행한다. Basic 비밀번호와 JWT 서명, issuer, audience, 만료 시각은 검증하지 않는다. 검증되지 않은 JWT payload는 클라이언트가 식별자를 바꿀 수 있으므로, 계정별 상한을 신뢰하려면 앞단 인증 계층이 같은 헤더를 검증해야 한다. `upstream.api_key`가 설정되어 있어도 계정은 upstream 헤더 교체 전 수신한 `Authorization`에서 결정한다.
+This feature only extracts identifiers. It does not verify Basic passwords or JWT signatures, issuers, audiences, or expiry. Clients can change identifiers in unverified JWT payloads; trusting per-account limits requires an authentication layer in front of the proxy to validate the same header. Even with `upstream.api_key` configured, accounts are determined from the incoming `Authorization` before upstream header replacement.
 
-backend에는 식별자의 SHA-256 해시를 전달하며 Basic 비밀번호, JWT 원문과 식별자 원문을 저장 키로 사용하지 않는다. Redis 계정 키는 `rate_limit.redis.key` 뒤에 `:account:<hash>`를 붙인다. memory와 분산 memory는 계정별 상태를 관리하며, 완전히 보충된 유휴 상태를 정리하고 남은 토큰 부채는 유지한다.
+Backends receive SHA-256 identifier hashes; Basic passwords, raw JWTs, and raw identifiers are not used as storage keys. Redis account keys append `:account:<hash>` to `rate_limit.redis.key`. Memory and distributed memory maintain per-account state, clean up fully refilled idle state, and retain remaining token debt.
 
-응답 사용량은 요청 허용 당시의 계정에 기록한다. 스트리밍 도중 `account.enabled`나 `jwt_claim`이 변경되어도 해당 요청의 계정은 바뀌지 않는다. 계정 설정 변경은 새 요청부터 적용하며 기존 전역 잔액을 각 계정으로 나누거나 서로 다른 식별자의 잔액을 합치지 않는다. 제한값과 계정 설정은 [policy 파일과 admin API](../operations/policy-configuration.md)로 변경할 수 있다.
+Response usage is recorded against the account selected at admission. Changing `account.enabled` or `jwt_claim` during a stream does not change that request's account. Account setting changes apply to new requests and neither split existing global balances among accounts nor merge balances of different identifiers. Change limits and account settings through the [policy file and admin API](../operations/policy-configuration.md).
 
-### OpenAI 응답의 사용량
+### Usage in OpenAI responses
 
-토큰 제한이 활성화되면 다음 경로의 성공한 `POST` 응답(HTTP `2xx`)에서 사용량을 읽는다. 경로는 선택한 목적지의 base path를 붙이기 전 수신한 요청을 기준으로 판단한다. 라우팅 규칙과 목적지가 달라도 같은 계정의 요청 수와 토큰 사용량 버킷은 공유한다. 계정 제한이 꺼져 있으면 전역 버킷을 공유한다.
+When token limiting is enabled, usage is read from successful `POST` responses (HTTP `2xx`) on these paths. Paths are evaluated on the incoming request before the selected destination's base path is appended. Requests for the same account share request and token usage buckets across routing rules and destinations. With account limiting disabled, they share global buckets.
 
-| API | 집계 경로 |
+| API | Counted paths |
 | --- | --- |
-| Chat Completions와 Completions | `/v1/chat/completions`, `/v1/completions` |
+| Chat Completions and Completions | `/v1/chat/completions`, `/v1/completions` |
 | Responses | `/v1/responses`, `/v1/responses/compact` |
 | Embeddings | `/v1/embeddings` |
 | Images | `/v1/images/generations`, `/v1/images/edits`, `/v1/images/variations` |
 | Audio | `/v1/audio/speech`, `/v1/audio/transcriptions`, `/v1/audio/translations` |
 
-저장된 응답을 조회하는 `GET`, Chat Completions의 메타데이터 수정 `POST`와 목록에 없는 경로는 집계하지 않는다. 지원 경로에서도 다음 토큰 사용량 형식이 있어야 집계하며 오디오 재생 시간이나 이미지 개수 등의 값을 토큰 수로 환산하지 않는다.
+Stored-response retrieval `GET` requests, Chat Completions metadata update `POST` requests, and unlisted paths are not counted. Even supported paths must supply one of the following token usage formats. Audio durations, image counts, and similar values are not converted to tokens.
 
-- JSON 응답의 유효한 `usage.total_tokens`를 우선 사용한다. 이 필드가 없거나 유효하지 않으면 `usage.prompt_tokens`와 `usage.completion_tokens`, 또는 `usage.input_tokens`와 `usage.output_tokens`의 유효한 합을 사용한다. 토큰 수는 음수가 아닌 `int64` 범위의 JSON 정수여야 한다.
-- Chat Completions SSE는 사용량 청크의 `usage`를 읽는다. 클라이언트가 요청에 `"stream_options": {"include_usage": true}`를 넣어야 OpenAI가 사용량 청크를 보낸다. 프록시는 요청 본문을 변경하거나 이 설정을 자동으로 추가하지 않는다. [OpenAI Chat Completions 스트리밍 참조](https://developers.openai.com/api/reference/resources/chat/subresources/completions/streaming-events)를 참고한다.
-- Responses SSE는 `response.completed`, `response.incomplete`, `response.failed` 종료 이벤트의 `response.usage`를 읽는다. 응답에 사용량이 포함된 경우에만 반영한다. [OpenAI Responses 스트리밍 참조](https://developers.openai.com/api/reference/resources/responses/streaming-events)를 참고한다.
+- Prefer valid `usage.total_tokens` in JSON responses. If absent or invalid, use a valid sum of `usage.prompt_tokens` and `usage.completion_tokens`, or `usage.input_tokens` and `usage.output_tokens`. Counts must be nonnegative JSON integers within the `int64` range.
+- Chat Completions SSE reads `usage` from usage chunks. Clients must include `"stream_options": {"include_usage": true}` for OpenAI to send these chunks. The proxy does not alter the request body or add this option automatically. See the [OpenAI Chat Completions streaming reference](https://developers.openai.com/api/reference/resources/chat/subresources/completions/streaming-events).
+- Responses SSE reads `response.usage` from terminal `response.completed`, `response.incomplete`, and `response.failed` events. It records usage only when present. See the [OpenAI Responses streaming reference](https://developers.openai.com/api/reference/resources/responses/streaming-events).
 
-한 응답에서 여러 사용량 청크를 받으면 누적 토큰 수가 증가한 차이만 반영해 중복 집계를 피한다. 누락되거나 유효하지 않은 사용량은 추정하지 않는다. 스트림이 중단되면 중단 전에 실제로 수신한 유효한 사용량만 반영되며, 최종 사용량 청크를 받지 못하면 토큰을 차감하지 못할 수 있다. 입력과 출력의 세부 토큰 통계는 별도 메트릭으로 내보내지 않는다.
+If a response contains multiple usage chunks, only increases in cumulative token counts are applied to avoid double counting. Missing or invalid usage is not estimated. Interrupted streams record only valid usage actually received before interruption; missing final usage chunks may leave tokens undeducted. Detailed input and output token statistics are not exported as separate metrics.
 
-Responses의 비동기 실행에서 최초 `POST`가 사용량 없이 반환되고 이후 `GET` polling이나 재개한 스트림에서 사용량을 받는 경우에는 토큰을 집계하지 않는다. 요청을 넘어서 response ID를 추적하거나 사용량을 별도로 조회하지 않기 때문이다. [OpenAI background mode](https://developers.openai.com/api/docs/guides/background)의 이런 흐름에서는 요청 수 제한만 적용될 수 있다.
+For asynchronous Responses, tokens are not counted when the initial `POST` returns without usage and subsequent `GET` polling or a resumed stream supplies it. The proxy neither tracks response IDs across requests nor separately fetches usage. Such [OpenAI background mode](https://developers.openai.com/api/docs/guides/background) flows may apply only request limits.
 
-사용량 관찰 대상 크기는 JSON 본문 또는 SSE 이벤트당 8 MiB로 제한하며 더 큰 본문이나 이벤트는 집계하지 않는다. JSON은 클라이언트에 본문 조각을 전달하면서 별도로 모은 복사본을 읽기 종료 또는 본문 닫기 시 해석한다. 전송이 중단되어도 이미 받은 내용이 완전하고 유효한 JSON이면 사용량을 반영하며, 불완전한 JSON은 반영하지 않는다. SSE는 이벤트별로 해석하며 큰 이벤트 이후의 이벤트는 계속 관찰한다. 사용량 관찰 시 지원 경로의 `POST`에 `Accept-Encoding: identity`를 요청하며, upstream이 압축 응답을 반환하면 본문을 그대로 전달하고 집계하지 않는다. 응답 본문과 SSE 전달 형식은 변경하지 않는다.
+Usage observation is limited to 8 MiB per JSON body or SSE event; larger bodies or events are not counted. JSON is copied separately while body fragments are forwarded to clients, then parsed when reading ends or the body closes. Even after interrupted transmission, already received complete valid JSON contributes usage; incomplete JSON does not. SSE is parsed per event, and events after oversized events continue to be observed. Supported `POST` paths request `Accept-Encoding: identity` during observation; compressed upstream responses are forwarded unchanged without counting. Response bodies and SSE forwarding formats are not modified.
 
-### 저장소와 오류 처리
+### Storage and error handling
 
-`memory`는 기본적으로 프로세스마다 독립적이다. `rate_limit.memory.distributed.enabled: true`이면 Raft로 여러 노드의 잔액을 공유한다. admin 포트의 `IP:port` 목록, 영속 데이터와 과반수 운영 규칙은 [분산 memory rate limit](../operations/distributed-rate-limiting.md)에 있다. `redis`는 같은 DB와 `rate_limit.redis.key`를 사용하는 프로세스끼리 요청 수와 토큰 사용량을 공유하며 Redis 서버 시간을 사용한다. 공유하는 인스턴스는 같은 제한값을 설정해야 한다. Redis key는 음수 잔액을 포함해 모든 버킷을 완전히 채울 수 있는 유휴 시간이 지난 뒤 만료된다. 사용량 차감으로 보충 시간이 지원 가능한 기간을 넘으면 부채를 보존하기 위해 key를 만료시키지 않는다.
+`memory` is independent per process by default. `rate_limit.memory.distributed.enabled: true` shares balances across nodes through Raft. See [Distributed memory rate limiting](../operations/distributed-rate-limiting.md) for admin-port `IP:port` lists, persistent data, and majority operation rules. `redis` shares request and token usage across processes using the same DB and `rate_limit.redis.key`, using Redis server time. Sharing instances must configure identical limits. Redis keys expire after enough idle time to refill all buckets, including negative balances. If a usage deduction pushes refill time beyond the supported duration, the key does not expire, preserving debt.
 
-요청 허용 판단 중 Redis 또는 분산 memory 오류가 발생하면 `503`을 반환한다. 이미 시작한 응답에서 사용량을 기록하다 실패하면 응답을 변경하지 않고 경고 로그를 남긴다. 결과가 불명확한 차감을 중복 적용하지 않도록 자동으로 재시도하지 않으므로 저장소 오류 동안 사용량이 누락될 수 있다.
+Redis or distributed memory errors during admission return `503`. Usage recording failures on responses already started emit warnings without changing responses. Deductions with uncertain outcomes are not automatically retried to avoid duplicates, so storage failures can leave usage uncounted.
 
-`rate_limit.enabled=false`이면 Redis 연결, Raft 노드 생성과 사용량 관찰 없이 두 제한을 모두 비활성화한다. 활성화 여부, backend 선택, 분산 memory와 Redis 연결 설정은 시작할 때 결정한다. upstream과 rate limit 수치와 계정 설정은 [Policy 설정과 admin API](../operations/policy-configuration.md)를 통해 실행 중 변경할 수 있다.
+`rate_limit.enabled=false` disables both limits without Redis connections, Raft node creation, or usage observation. Activation, backend selection, distributed memory, and Redis connections are determined at startup. Upstream settings, rate limit values, and account settings can change at runtime through [Policy configuration and admin API](../operations/policy-configuration.md).

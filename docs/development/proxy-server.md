@@ -20,14 +20,13 @@ docker run --rm token-router:local validate
 docker run --rm --stop-timeout 40 \
   -p 127.0.0.1:8080:8080 \
   -p 127.0.0.1:9090:9090 \
-  -v "$(pwd)/config.yaml:/app/config.yaml:ro" \
-  -e TOKEN_ROUTER_UPSTREAM_API_KEY \
-  token-router:local
+  -v "$(pwd):/app/config:ro" \
+  token-router:local serve --config /app/config/config.yaml
 ```
 
 `make build`는 Docker 빌드에서 Linux 실행 파일을 생성해 `bin/token-router`로 내보낸다. 호스트 운영체제용 실행 파일은 `make build-local`로 빌드한다. `make image`의 기본 이미지 이름은 `token-router:local`이며 `make image APP_IMAGE=token-router:dev`처럼 변경할 수 있다.
 
-실행 이미지는 CA 인증서와 실행 파일, 기본 [`config.yaml`](../../config.yaml)을 포함하며 UID와 GID `65532`로 실행한다. 기본 작업 디렉토리는 `/app`, 기본 명령은 `serve`다. `-v` 옵션은 저장소의 설정 파일을 이미지의 기본 설정 위치에 마운트한다. `-e TOKEN_ROUTER_UPSTREAM_API_KEY`는 같은 이름의 호스트 환경 변수를 전달한다. upstream API key가 없으면 클라이언트 요청의 `Authorization`을 사용한다.
+실행 이미지는 CA 인증서와 실행 파일, 기본 [`config.yaml`](../../config.yaml)과 [`policy.yaml`](../../policy.yaml)을 포함하며 UID와 GID `65532`로 실행한다. 기본 작업 디렉토리는 `/app`, 기본 명령은 `serve`다. 예제는 저장소 디렉토리를 읽기 전용으로 마운트하고 그 안의 설정을 사용한다. 디렉토리 마운트이므로 호스트에서 policy 파일을 rename으로 교체해도 감시할 수 있다. upstream API key가 없으면 클라이언트 요청의 `Authorization`을 사용한다.
 
 이미지는 `TOKEN_ROUTER_SERVER_ADDRESS=:8080`과 `TOKEN_ROUTER_TELEMETRY_METRICS_PROMETHEUS_ADDRESS=:9090`을 설정해 컨테이너 외부에서 연결할 수 있게 한다. 이 환경 변수는 YAML의 주소보다 우선하므로 주소를 변경하려면 `docker run -e`나 CLI 인자로 재정의한다. 위 명령은 호스트 포트를 `127.0.0.1`에만 공개한다.
 
@@ -43,7 +42,7 @@ curl --fail http://127.0.0.1:8080/v1/models \
   -H "Authorization: Bearer ${OPENAI_API_KEY}"
 ```
 
-`OPENAI_API_KEY`는 이 `curl` 예시에서 사용하는 셸 변수다. 서버가 이 변수를 자동으로 읽지는 않는다. 서버에서 공통 upstream API key를 주입하려면 `TOKEN_ROUTER_UPSTREAM_API_KEY`를 사용한다. API key를 설정한 프록시로 들어오는 요청은 해당 key를 사용한다. 현재 프록시 자체의 사용자 인증은 없다. 호스트에서 직접 실행할 때 기본 API와 메트릭 리스너는 loopback 주소에 바인딩한다.
+`OPENAI_API_KEY`는 이 `curl` 예시에서 사용하는 셸 변수다. 서버가 이 변수를 자동으로 읽지는 않는다. 공통 upstream API key는 `policy.yaml`의 `upstream.api_key`로 설정한다. 이 필드를 policy 파일에서 생략하면 시작 환경 변수 `TOKEN_ROUTER_UPSTREAM_API_KEY`를 사용할 수 있다. API key를 설정한 프록시로 들어오는 요청은 해당 key를 사용한다. 현재 프록시 자체의 사용자 인증은 없다. 호스트에서 직접 실행할 때 기본 API와 메트릭 리스너는 loopback 주소에 바인딩한다.
 
 ## 검증
 
@@ -108,4 +107,4 @@ TOKEN_ROUTER_TEST_REDIS_ADDR=127.0.0.1:16379 \
 
 OpenTelemetry export는 `telemetry.otlp.enabled=true`로 활성화한다. 실행 예시와 Collector 연결 방법은 [OpenTelemetry 관측 구성](../operations/observability.md)에 있다.
 
-설정은 시작할 때 읽는다. YAML 또는 환경 변수 값을 바꾸면 프로세스를 재시작해야 한다.
+메인 설정과 환경 변수는 시작할 때 읽는다. upstream과 rate limit 수치는 별도 `policy.file`의 파일 감시 또는 전용 admin API로 변경할 수 있다. 실행 명령, 파일 저장 권한과 API 예제는 [Policy 설정과 admin API](../operations/policy-configuration.md)에 있다. backend 전략, 리스너와 telemetry 설정을 바꾸면 프로세스를 재시작해야 한다.

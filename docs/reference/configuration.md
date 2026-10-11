@@ -8,6 +8,7 @@
 2. YAML 파일
 3. `TOKEN_ROUTER_` 접두사의 환경 변수
 4. 명시적으로 전달한 CLI 인자
+5. `policy.file`이 지정되면 해당 파일의 upstream과 rate limit 수치 설정
 
 `--config`가 있으면 해당 파일을 읽는다. 이 인자가 없으면 `TOKEN_ROUTER_CONFIG`, 이후 현재 작업 디렉토리의 `config.yaml` 순서로 경로를 결정한다. 암시적인 `config.yaml`이 없을 때는 기본값으로 계속 진행한다. 인자 또는 환경 변수로 지정한 파일이 없거나 읽을 수 없으면 시작하지 않는다.
 
@@ -15,13 +16,16 @@ CLI 기본값은 YAML 또는 환경 변수 값을 덮어쓰지 않는다. 명시
 
 ## 설정 계층
 
-모든 기본값과 YAML 키는 [`config.yaml`](../../config.yaml)에 있다. 계층별 책임은 다음과 같다.
+고정 설정은 [`config.yaml`](../../config.yaml), upstream과 rate limit 수치 설정은 [`policy.yaml`](../../policy.yaml)에 있다. `config.yaml`의 `policy.file`이 policy 파일을 지정한다. 계층별 책임은 다음과 같다.
 
 | 계층 | 책임 |
 | --- | --- |
 | `server` | API 리스너 주소, HTTP timeout, 헤더 크기, 종료 대기 시간 |
-| `upstream` | 기본 목적지와 라우팅 규칙, 인증 헤더, 공유 연결 풀과 upstream timeout |
-| `rate_limit` | 활성화 여부, `memory` 또는 `redis` 전략, 요청 수와 토큰 사용량의 초당 보충량과 burst |
+| `admin` | 선택적인 전용 admin API 리스너 활성화와 주소 |
+| `policy` | upstream과 rate limit 수치 설정을 저장하는 별도 파일과 내용 검사 간격 |
+| `upstream` (`policy.yaml`) | 기본 목적지와 라우팅 규칙, 인증 헤더, 공유 연결 풀과 upstream timeout |
+| `rate_limit` (`config.yaml`) | 활성화 여부, `memory` 또는 `redis` 전략과 Redis 연결 설정 |
+| `rate_limit` (`policy.yaml`) | 요청 수와 토큰 사용량의 초당 보충량과 burst |
 | `rate_limit.redis` | Redis 주소, 인증, DB, 공용 key, TLS와 I/O timeout |
 | `telemetry` | 로그, Prometheus와 OpenTelemetry 설정, service resource와 export 종료 대기 시간 |
 | `telemetry.otlp` | OTLP 전송 활성화, 세 신호가 공유하는 HTTP base URL과 전송 timeout |
@@ -35,6 +39,8 @@ CLI 기본값은 YAML 또는 환경 변수 값을 덮어쓰지 않는다. 명시
 | YAML 키 | 환경 변수 | CLI |
 | --- | --- | --- |
 | `server.address` | `TOKEN_ROUTER_SERVER_ADDRESS` | `--server-address` |
+| `policy.file` | `TOKEN_ROUTER_POLICY_FILE` | `--policy-file` |
+| `policy.watch_interval` | `TOKEN_ROUTER_POLICY_WATCH_INTERVAL` | `--policy-watch-interval` |
 | `upstream.base_urls` | `TOKEN_ROUTER_UPSTREAM_BASE_URLS` | `--upstream-base-urls` |
 | `upstream.routes` | `TOKEN_ROUTER_UPSTREAM_ROUTES` | `--upstream-routes` |
 | `upstream.max_routing_body_bytes` | `TOKEN_ROUTER_UPSTREAM_MAX_ROUTING_BODY_BYTES` | `--upstream-max-routing-body-bytes` |
@@ -55,18 +61,18 @@ CLI 기본값은 YAML 또는 환경 변수 값을 덮어쓰지 않는다. 명시
 | `telemetry.logs.level` | `TOKEN_ROUTER_TELEMETRY_LOGS_LEVEL` | `--telemetry-logs-level` |
 | `telemetry.logs.format` | `TOKEN_ROUTER_TELEMETRY_LOGS_FORMAT` | `--telemetry-logs-format` |
 
-`go run ./src/cmd/token-router --help`는 전체 CLI와 대응 환경 변수 이름을 보여준다. 예를 들어 다음 명령은 YAML을 읽은 뒤 환경 변수의 주소, CLI의 burst를 적용한다.
+`go run ./src/cmd/token-router --help`는 전체 CLI와 대응 환경 변수 이름을 보여준다. 다음 명령은 policy 파일 사용을 끄고 메인 YAML, 환경 변수의 주소와 CLI의 burst를 적용한다. policy 파일을 사용하면 파일에 명시한 값이 CLI보다 우선한다.
 
 ```sh
 TOKEN_ROUTER_SERVER_ADDRESS=127.0.0.1:8081 \
-  go run ./src/cmd/token-router serve --config config.yaml --rate-limit-burst 50
+  go run ./src/cmd/token-router serve --config config.yaml --policy-file= --rate-limit-burst 50
 ```
 
 불리언 인자는 `--telemetry-metrics-prometheus-enabled`처럼 값 없이 전달하면 `true`가 된다. `false`를 지정할 때는 `--telemetry-metrics-prometheus-enabled=false`처럼 등호를 사용한다. `TOKEN_ROUTER_CONFIG` 또는 `--config`에 빈 경로를 명시하면 오류다.
 
 ## 여러 upstream 라우팅
 
-`upstream.routes`는 요청의 `Host` 헤더와 JSON 본문의 최상위 `model`을 목적지 배열에 연결한다. `base_urls`에는 `http` 또는 `https` URL과 `host:port` 주소를 함께 사용할 수 있다. scheme이 없는 주소에는 HTTP를 적용하며 포트가 필요하다. IPv6 주소는 `[::1]:9000`처럼 대괄호로 감싼다.
+`policy.yaml`의 `upstream.routes`는 요청의 `Host` 헤더와 JSON 본문의 최상위 `model`을 목적지 배열에 연결한다. `base_urls`에는 `http` 또는 `https` URL과 `host:port` 주소를 함께 사용할 수 있다. scheme이 없는 주소에는 HTTP를 적용하며 포트가 필요하다. IPv6 주소는 `[::1]:9000`처럼 대괄호로 감싼다.
 
 ```yaml
 upstream:
@@ -103,13 +109,13 @@ upstream:
 
 매칭되지 않은 요청을 거절하려면 `upstream.base_urls: []`로 기본 풀을 비워 둔다. 이 경우 매칭 규칙이 없으면 `404`와 `route_not_found`를 반환한다. 전체 설정에 목적지가 하나도 없으면 시작 시 검증에 실패한다.
 
-배열은 환경 변수와 CLI에서도 전달할 수 있다.
+배열은 환경 변수와 CLI에서도 전달할 수 있다. 다음 예제는 policy 파일을 끄고 시작 설정으로 배열을 전달한다.
 
 ```sh
 TOKEN_ROUTER_UPSTREAM_BASE_URLS='["10.0.0.11:8000","https://inference.example.com"]' \
-  go run ./src/cmd/token-router serve
+  go run ./src/cmd/token-router serve --policy-file=
 
-go run ./src/cmd/token-router serve \
+go run ./src/cmd/token-router serve --policy-file= \
   --upstream-base-urls='[]' \
   --upstream-routes='[{"host":"api.example.com","model":"chat-model","base_urls":["10.0.0.11:8000","10.0.0.12:8000"]}]'
 ```
@@ -173,12 +179,10 @@ JSON 로그, trace 연결과 수집 구성은 [OpenTelemetry 관측 구성](../o
 
 토큰 사용량 버킷은 `rate_limit.tokens_per_second`와 `rate_limit.token_burst`로 설정한다. 기본값은 모두 `0`이며 요청 수만 제한한다. 토큰 제한을 사용하려면 초당 보충량인 `rate_limit.tokens_per_second`와 최대 토큰 수인 `rate_limit.token_burst`를 모두 양수로 설정한다. 한 값만 `0`으로 설정할 수 없다. burst는 정수이며 보충량은 소수도 허용한다. 보충량에는 `NaN`과 무한대를 사용할 수 없으며 활성 버킷의 전체 보충 시간은 Go `time.Duration`으로 표현할 수 있어야 한다.
 
-다음 설정은 요청을 초당 10개씩 보충하고 최대 20개를 허용하며, 모델 토큰은 초당 1,000개씩 보충하고 최대 60,000개를 누적한다.
+`config.yaml`의 `rate_limit.enabled: true`와 `rate_limit.backend: memory`를 유지하고 다음 수치를 `policy.yaml`에 설정한다. 요청을 초당 10개씩 보충하고 최대 20개를 허용하며, 모델 토큰은 초당 1,000개씩 보충하고 최대 60,000개를 누적한다.
 
 ```yaml
 rate_limit:
-  enabled: true
-  backend: memory
   requests_per_second: 10
   burst: 20
   tokens_per_second: 1000
@@ -219,4 +223,4 @@ Responses의 비동기 실행에서 최초 `POST`가 사용량 없이 반환되�
 
 요청 허용 판단 중 Redis 오류가 발생하면 `503`을 반환한다. 이미 시작한 응답에서 사용량을 기록하다 실패하면 응답을 변경하지 않고 경고 로그를 남긴다. 결과가 불명확한 차감을 중복 적용하지 않도록 자동으로 재시도하지 않으므로 저장소 오류 동안 사용량이 누락될 수 있다.
 
-`rate_limit.enabled=false`이면 Redis 연결과 사용량 관찰 없이 두 제한을 모두 비활성화한다. backend 선택과 유효 설정은 시작할 때 결정한다.
+`rate_limit.enabled=false`이면 Redis 연결과 사용량 관찰 없이 두 제한을 모두 비활성화한다. 활성화 여부, backend 선택과 Redis 연결 설정은 시작할 때 결정한다. upstream과 rate limit 수치 설정은 [Policy 설정과 admin API](../operations/policy-configuration.md)를 통해 실행 중 변경할 수 있다.

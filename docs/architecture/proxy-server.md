@@ -48,6 +48,14 @@ type Limiter interface {
 
 새로운 버킷 저장소를 추가할 때는 이 인터페이스를 구현하고 설정 검증과 factory의 분기를 추가한다. HTTP handler는 변경할 필요가 없다. 모든 API 요청은 전역 요청 수 버킷과 선택적인 토큰 사용량 버킷을 공유한다. 사용자별 제한은 구현하지 않는다.
 
+`bucket.New`는 `Limiter`에 `Update(config.LimitValues)`를 추가한 `Reconfigurable`을 반환한다. 이 메서드는 검증된 수치만 받아 backend와 기존 잔액을 유지하며 갱신한다. 새 버킷 구현도 이 메서드를 제공해야 한다.
+
+## Policy 설정
+
+[`app/policy.go`](../../src/internal/app/policy.go)는 파일 내용 감시, admin API와 설정 교체를 담당한다. `updateMu`가 파일 읽기, API 병합과 저장을 직렬화하고 `policyMu`가 요청 허용 판단과 upstream 선택에 일관된 설정을 제공한다. 프록시 생성과 파일 저장에 성공한 뒤 제한값과 프록시를 함께 적용한다. 스트림은 설정 lock을 잡지 않으며 선택한 프록시를 계속 사용한다. 교체한 프록시의 유휴 연결은 즉시 닫고, 마지막 사용 요청이 끝날 때 다시 정리한다.
+
+Admin API는 선택적인 별도 리스너에서만 설정을 제공한다. 파일과 API 모두 `upstream` 전체와 rate limit 수치만 허용하며 전략, 리스너, Redis와 telemetry는 고정한다. 파일 병합과 API 저장 규칙은 [Policy 설정과 admin API](../operations/policy-configuration.md)에 있다.
+
 ## 메트릭과 상태 검사
 
 | 경로 또는 메트릭 | 의미 |
@@ -76,9 +84,9 @@ Echo middleware가 서버 span을 만들고 upstream transport를 감싼 `http.R
 
 1. 설정을 검증하고 telemetry providers, logger, 버킷, upstream transport와 registry를 생성한다. Redis 전략은 연결을 확인한다.
 2. 필요한 모든 주소를 먼저 bind한다. 일부 bind가 실패하면 이미 연 리스너를 닫고 시작을 실패 처리한다.
-3. Echo API와 선택적인 메트릭 서버를 실행하고 readiness를 활성화한다.
+3. 파일 내용 감시, Echo API, 선택적인 admin과 메트릭 서버를 실행하고 readiness를 활성화한다.
 4. 종료 신호나 서버 오류가 발생하면 readiness를 내리고 모든 서버에 같은 deadline으로 `Shutdown`을 호출한다.
-5. deadline이 지나면 request context를 취소하고 남은 연결을 닫는다. HTTP 서버가 끝나면 upstream 유휴 연결과 버킷 client를 정리한다.
+5. deadline이 지나면 request context를 취소하고 남은 연결을 닫는다. 파일 감시를 종료하고 HTTP 서버가 끝나면 upstream 유휴 연결과 버킷 client를 정리한다.
 6. 종료 신호와 분리된 context로 telemetry providers를 종료해 대기 중인 데이터를 전송한다. 이 단계에는 `telemetry.shutdown_timeout`을 적용한다.
 
 종료 신호 context와 HTTP request context를 분리하므로 신호를 받았다는 이유만으로 진행 중인 스트림을 즉시 취소하지 않는다. 정상적인 drain은 성공 exit code, 시작 오류 또는 종료 deadline 초과는 실패 exit code를 반환한다.

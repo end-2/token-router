@@ -40,11 +40,12 @@ runner는 일반 빌드에서 생성한 실행 파일을 사용하고 Ginkgo 테
 
 ## 시나리오
 
-총 24개 시나리오를 실행한다.
+다음 시나리오를 실행한다.
 
 | 범위 | 검증 내용 |
 | --- | --- |
 | 설정 우선순위 | upstream 인증이 기본값, YAML, 환경 변수, CLI 인자 순으로 적용되는지 확인 |
+| Policy 설정 | memory와 Redis에서 파일 교체 감지, 전용 admin 포트 격리, API 변경과 재시작 후 저장값 유지, 전략 변경 거부와 토큰 제한 활성화 확인 (2개 table entry) |
 | HTTP 전달 | 메서드, base URL 경로, query, 본문, OpenAI 조직과 프로젝트 헤더 및 upstream 오류 응답 보존 |
 | upstream 라우팅 | Host와 model 조건, 동일 조건의 URL 및 주소 배열 병합, 라운드 로빈과 기본 목적지 선택 |
 | 라우팅된 SSE | 모델 규칙으로 선택한 upstream의 점진적 SSE 전달과 공유 토큰 사용량 제한 |
@@ -66,7 +67,7 @@ runner는 일반 빌드에서 생성한 실행 파일을 사용하고 Ginkgo 테
 | OTLP rate limit 메트릭 | 허용과 거절 counter 및 HTTP `429` counter를 Prometheus에서 확인 |
 | 종료 시 telemetry flush | SSE 응답을 종료할 때 최종 span, log와 export interval이 `1h`인 메트릭까지 backend에 전달되는지 확인 |
 
-HTTP와 설정 시나리오는 [`proxy_test.go`](../../tests/e2e/proxy_test.go), 토큰 사용량 제한은 [`token_usage_test.go`](../../tests/e2e/token_usage_test.go), SSE와 종료 시나리오는 [`streaming_test.go`](../../tests/e2e/streaming_test.go), telemetry 시나리오는 [`telemetry_test.go`](../../tests/e2e/telemetry_test.go)에 있다. Backend 반영은 polling으로 확인하고, 비활성화된 signal은 Collector batch와 Prometheus scrape interval을 포함하는 시간 동안 데이터가 없는지 확인한다.
+HTTP와 설정 시나리오는 [`proxy_test.go`](../../tests/e2e/proxy_test.go), policy 설정은 [`policy_test.go`](../../tests/e2e/policy_test.go), 토큰 사용량 제한은 [`token_usage_test.go`](../../tests/e2e/token_usage_test.go), SSE와 종료 시나리오는 [`streaming_test.go`](../../tests/e2e/streaming_test.go), telemetry 시나리오는 [`telemetry_test.go`](../../tests/e2e/telemetry_test.go)에 있다. Backend 반영은 polling으로 확인하고, 비활성화된 signal은 Collector batch와 Prometheus scrape interval을 포함하는 시간 동안 데이터가 없는지 확인한다.
 
 ## 호스트에서 실행
 

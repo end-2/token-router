@@ -36,9 +36,15 @@ type Limiter interface {
 	Close() error
 }
 
+// Reconfigurable preserves backend resources and balances when validated limits change.
+type Reconfigurable interface {
+	Limiter
+	Update(config.LimitValues)
+}
+
 // New selects a process-local memory bucket, a shared Redis bucket, or a disabled
 // limiter according to cfg. Redis connectivity is checked before returning.
-func New(ctx context.Context, cfg config.RateLimit) (Limiter, error) {
+func New(ctx context.Context, cfg config.RateLimit) (Reconfigurable, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -76,6 +82,8 @@ func New(ctx context.Context, cfg config.RateLimit) (Limiter, error) {
 type disabledLimiter struct {
 	closed atomic.Bool
 }
+
+func (*disabledLimiter) Update(config.LimitValues) {}
 
 func (l *disabledLimiter) Allow(ctx context.Context) (Decision, error) {
 	if err := ctx.Err(); err != nil {

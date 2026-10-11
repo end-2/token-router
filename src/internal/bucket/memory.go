@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"golang.org/x/time/rate"
+
+	"token-router/src/internal/config"
 )
 
 type memoryLimiter struct {
@@ -105,4 +107,21 @@ func (l *memoryLimiter) Close() error {
 	defer l.mu.Unlock()
 	l.closed = true
 	return nil
+}
+
+func (l *memoryLimiter) Update(values config.LimitValues) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	now := l.now()
+	l.limiter.SetLimitAt(now, rate.Limit(values.RequestsPerSecond))
+	l.limiter.SetBurstAt(now, values.Burst)
+	if l.usageRate > 0 {
+		l.refillUsage(now)
+		l.usageTokens = math.Min(l.usageTokens, float64(values.TokenBurst))
+	} else {
+		l.usageTokens = float64(values.TokenBurst)
+	}
+	l.usageRate = values.TokensPerSecond
+	l.usageBurst = float64(values.TokenBurst)
+	l.usageUpdated = now
 }

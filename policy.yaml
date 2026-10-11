@@ -1,0 +1,20 @@
+upstream:
+  base_urls:
+    - "https://api.openai.com"
+  routes: []
+  max_routing_body_bytes: 8388608
+  api_key: ""
+  organization: ""
+  project: ""
+  dial_timeout: 10s
+  response_header_timeout: 60s
+  idle_conn_timeout: 90s
+  request_timeout: 0s
+  max_idle_conns: 100
+  max_idle_conns_per_host: 100
+
+rate_limit:
+  requests_per_second: 10
+  burst: 20
+  tokens_per_second: 0
+  token_burst: 0

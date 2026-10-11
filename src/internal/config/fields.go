@@ -42,6 +42,10 @@ type field struct {
 
 func fields(c *Config) []field {
 	return []field{
+		{"admin.enabled", "Enable the separate configuration API listener", &c.Admin.Enabled},
+		{"admin.address", "Admin API listen address", &c.Admin.Address},
+		{"policy.file", "Policy file relative to the main configuration file", &c.Policy.File},
+		{"policy.watch_interval", "Interval for checking policy file contents", &c.Policy.WatchInterval},
 		{"server.address", "Proxy listen address", &c.Server.Address},
 		{"server.read_header_timeout", "Maximum time to read request headers", &c.Server.ReadHeaderTimeout},
 		{"server.read_timeout", "Maximum time to read a request; 0 disables the timeout", &c.Server.ReadTimeout},

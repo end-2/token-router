@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -66,6 +67,26 @@ func Load(options Options) (Config, error) {
 		if err := setting.set(value); err != nil {
 			return Config{}, fmt.Errorf("command-line override: %w", err)
 		}
+	}
+	base := cfg.Mutable()
+	if cfg.Policy.File != "" {
+		cfg.policyBase = &base
+		if !filepath.IsAbs(cfg.Policy.File) {
+			cfg.Policy.File = filepath.Join(filepath.Dir(path), cfg.Policy.File)
+		}
+		cfg.Policy.File, err = filepath.Abs(cfg.Policy.File)
+		if err != nil {
+			return Config{}, errors.New("cannot resolve policy configuration file")
+		}
+		data, err := ReadPolicyFile(cfg.Policy.File)
+		if err != nil {
+			return Config{}, err
+		}
+		mutable, err := DecodePolicy(data, base)
+		if err != nil {
+			return Config{}, err
+		}
+		cfg = mutable.Apply(cfg)
 	}
 	if err := cfg.Validate(); err != nil {
 		return Config{}, fmt.Errorf("invalid configuration: %w", err)

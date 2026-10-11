@@ -252,8 +252,32 @@ func TestExampleConfigurationMatchesDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(cfg, Defaults()) {
-		t.Error("checked-in config.yaml differs from built-in defaults")
+	want := Defaults()
+	want.Policy.File, err = filepath.Abs("../../../policy.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := want.Mutable()
+	want.policyBase = &base
+	if !reflect.DeepEqual(cfg, want) {
+		t.Error("checked-in config.yaml and policy.yaml differ from built-in defaults")
+	}
+	data, err := os.ReadFile("../../../config.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var main map[string]any
+	if err := yaml.Unmarshal(data, &main); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := main["upstream"]; ok {
+		t.Error("upstream must be defined only in policy.yaml")
+	}
+	limits := main["rate_limit"].(map[string]any)
+	for _, key := range []string{"requests_per_second", "burst", "tokens_per_second", "token_burst"} {
+		if _, ok := limits[key]; ok {
+			t.Errorf("rate_limit.%s must be defined only in policy.yaml", key)
+		}
 	}
 }
 

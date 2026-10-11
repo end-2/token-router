@@ -1,4 +1,4 @@
-// Package config loads and validates the runtime configuration.
+// Package config loads and validates application configuration and policies.
 package config
 
 import (
@@ -11,12 +11,27 @@ import (
 	"time"
 )
 
-// Config groups runtime settings by the component that consumes them.
+// Config groups application settings by the component that consumes them.
 type Config struct {
-	Server    Server    `yaml:"server"`
-	Upstream  Upstream  `yaml:"upstream"`
-	RateLimit RateLimit `yaml:"rate_limit"`
-	Telemetry Telemetry `yaml:"telemetry"`
+	Server     Server    `yaml:"server"`
+	Admin      Admin     `yaml:"admin"`
+	Policy     Policy    `yaml:"policy"`
+	Upstream   Upstream  `yaml:"upstream"`
+	RateLimit  RateLimit `yaml:"rate_limit"`
+	Telemetry  Telemetry `yaml:"telemetry"`
+	policyBase *PolicyConfig
+}
+
+// Admin configures the separate configuration API listener.
+type Admin struct {
+	Enabled bool   `yaml:"enabled"`
+	Address string `yaml:"address"`
+}
+
+// Policy selects the optional mutable configuration file and polling interval.
+type Policy struct {
+	File          string        `yaml:"file"`
+	WatchInterval time.Duration `yaml:"watch_interval"`
 }
 
 // Server configures the public HTTP listener and graceful shutdown.
@@ -120,6 +135,8 @@ type TelemetryLogs struct {
 // Defaults returns settings suitable for local development and streaming APIs.
 func Defaults() Config {
 	return Config{
+		Admin:  Admin{Address: "127.0.0.1:9091"},
+		Policy: Policy{WatchInterval: time.Second},
 		Server: Server{
 			Address: "127.0.0.1:8080", ReadHeaderTimeout: 10 * time.Second,
 			IdleTimeout: 60 * time.Second, ShutdownTimeout: 30 * time.Second,
@@ -154,6 +171,18 @@ func Defaults() Config {
 
 // Validate checks settings without including configured values in errors.
 func (c Config) Validate() error {
+	if c.Policy.WatchInterval <= 0 {
+		return fmt.Errorf("policy.watch_interval must be positive")
+	}
+	if c.Admin.Enabled {
+		if err := validateAddress("admin.address", c.Admin.Address); err != nil {
+			return err
+		}
+		if !strings.HasSuffix(c.Admin.Address, ":0") && (c.Admin.Address == c.Server.Address ||
+			(c.Telemetry.Metrics.Enabled && c.Telemetry.Metrics.Prometheus.Enabled && c.Admin.Address == c.Telemetry.Metrics.Prometheus.Address)) {
+			return fmt.Errorf("admin.address must differ from other listener addresses")
+		}
+	}
 	if err := validateAddress("server.address", c.Server.Address); err != nil {
 		return err
 	}

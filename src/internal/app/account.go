@@ -14,11 +14,20 @@ import (
 // accountIdentifier reads identity only. Authentication and JWT signature,
 // issuer, audience and expiration validation belong to the trusted auth layer.
 func accountIdentifier(r *http.Request, cfg config.Account) (string, bool) {
-	if len(r.Header.Values("Authorization")) != 1 || len(r.Header.Get("Authorization")) > 16<<10 {
+	values := r.Header.Values("Authorization")
+	if len(values) != 1 || len(values[0]) > 16<<10 {
 		return "", false
 	}
-	parts := strings.Fields(r.Header.Get("Authorization"))
-	if len(parts) != 2 {
+	var parts [2]string
+	count := 0
+	for part := range strings.FieldsSeq(values[0]) {
+		if count == len(parts) {
+			return "", false
+		}
+		parts[count] = part
+		count++
+	}
+	if count != len(parts) {
 		return "", false
 	}
 	var identifier string
@@ -34,11 +43,15 @@ func accountIdentifier(r *http.Request, cfg config.Account) (string, bool) {
 			return "", false
 		}
 	case strings.EqualFold(parts[0], "Bearer"):
-		segments := strings.Split(parts[1], ".")
-		if len(segments) != 3 || segments[0] == "" || segments[1] == "" {
+		header, remainder, ok := strings.Cut(parts[1], ".")
+		if !ok || header == "" {
 			return "", false
 		}
-		payload, err := base64.RawURLEncoding.DecodeString(segments[1])
+		encoded, signature, ok := strings.Cut(remainder, ".")
+		if !ok || encoded == "" || strings.Contains(signature, ".") {
+			return "", false
+		}
+		payload, err := base64.RawURLEncoding.DecodeString(encoded)
 		if err != nil {
 			return "", false
 		}

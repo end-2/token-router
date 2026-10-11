@@ -25,9 +25,15 @@ func TestAccountIdentifier(t *testing.T) {
 		name, authorization, claim, want string
 	}{
 		{"basic", accountBasic("alice", "secret:password"), "sub", "alice"},
+		{"whitespace", " \t" + strings.ReplaceAll(accountBasic("alice", "pw"), " ", "\t\t") + "\u2003", "sub", "alice"},
+		{"extra field", accountBasic("alice", "pw") + " extra", "sub", ""},
 		{"empty password", accountBasic("alice", ""), "sub", "alice"},
 		{"case insensitive", strings.ToLower("Basic") + " " + base64.StdEncoding.EncodeToString([]byte("alice:pw")), "sub", "alice"},
 		{"bearer", accountJWT(`{"sub":"alice"}`), "sub", "alice"},
+		{"empty signature", strings.TrimSuffix(accountJWT(`{"sub":"alice"}`), "signature"), "sub", "alice"},
+		{"extra JWT segment", accountJWT(`{"sub":"alice"}`) + ".extra", "sub", ""},
+		{"empty JWT header", "Bearer ." + base64.RawURLEncoding.EncodeToString([]byte(`{"sub":"alice"}`)) + ".sig", "sub", ""},
+		{"empty JWT payload", "Bearer header..sig", "sub", ""},
 		{"custom claim", accountJWT(`{"sub":"alice","account_id":"team"}`), "account_id", "team"},
 		{"missing", "", "sub", ""},
 		{"unsupported", "Digest anything", "sub", ""},

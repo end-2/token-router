@@ -122,7 +122,7 @@ Run the actual Lua concurrency test against an accessible test Redis server. It 
 
 ```sh
 TOKEN_ROUTER_TEST_REDIS_ADDR=127.0.0.1:16379 \
-  go test -race ./src/internal/bucket -run TestRedisIntegrationSharedAtomicBucket
+  go test -race ./src/internal/bucket/redis -run TestRedisIntegration
 ```
 
 ## Shutdown
@@ -140,6 +140,8 @@ Main configuration and environment variables are read at startup. Upstream setti
 Follow [Distributed memory rate limiting](../operations/distributed-rate-limiting.md) for cluster configuration and [Per-account limits](../reference/configuration.md#per-account-limits) for Basic and Bearer identifiers. Ordinary Go tests use three Raft nodes on actual HTTP admin ports to verify shared limits, leader replacement, majority loss, and persistent log and snapshot recovery. No external Redis or separate cluster is required.
 
 ```sh
-go test -race ./src/internal/bucket -run TestDistributed
-go test -race ./src/internal/app ./src/internal/bucket -run TestAccount
+go test -race ./src/internal/bucket/distributed -run TestDistributed
+go test -race ./src/internal/app ./src/internal/bucket/... -run 'Test.*Account'
 ```
+
+Use recursive package patterns when checking a component with child packages. The memory and Redis tests both run the shared `bucket/limittest` conformance checks with backend-specific clocks; backend state stays private to each implementation. Proxy exchange tests remain in `proxy`, while usage parser tests live in `proxy/usage`. Prometheus and OpenTelemetry tests live with their respective implementations. See [Package boundaries](../architecture/proxy-server.md#package-boundaries) for the source hierarchy.

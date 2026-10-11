@@ -16,7 +16,7 @@ The upstream response and log destination are in memory. These results do not me
 ## Component benchmarks
 
 ```sh
-go test ./src/internal/proxy ./src/internal/bucket ./src/internal/observability \
+go test ./src/internal/proxy/... ./src/internal/bucket/... ./src/internal/observability/... \
   -run '^$' -bench . -benchmem -benchtime=1s -count=5 -cpu=1,4
 go test ./src/internal/app -run '^$' \
   -bench '^BenchmarkAccountIdentifier$' -benchmem -benchtime=1s -count=5

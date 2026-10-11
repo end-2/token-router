@@ -2,7 +2,7 @@
 
 ## Architecture
 
-- [Proxy server architecture](architecture/proxy-server.md): package responsibilities, proxy processing, bucket backends, metrics, and shutdown order
+- [Proxy server architecture](architecture/proxy-server.md): package hierarchy and responsibilities, proxy processing, bucket backends, metrics, and shutdown order
 
 ## Development
 

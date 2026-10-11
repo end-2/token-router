@@ -16,7 +16,7 @@ The behavior follows Go 1.27.2 [`net/http/httputil/reverseproxy.go`](https://git
 
 ## Routing and header rewriting
 
-[`router.selectTarget`](../../src/internal/proxy/routing.go) bypasses Host parsing when only the default pool is configured. Pools containing one destination bypass the round-robin atomic increment; pools with multiple destinations retain atomic round robin. Authorities without a colon avoid `net.SplitHostPort` and its error allocation.
+[`routing.Router.SelectTarget`](../../src/internal/proxy/routing/routing.go) bypasses Host parsing when only the default pool is configured. Pools containing one destination bypass the round-robin atomic increment; pools with multiple destinations retain atomic round robin. Authorities without a colon avoid `net.SplitHostPort` and its error allocation.
 
 [`proxy.New`](../../src/internal/proxy/proxy.go) constructs a configured authorization value once per proxy generation. Forwarding header removal compares prefixes without allocating lowercase copies for each request header. Header removal remains case insensitive.
 
@@ -24,7 +24,7 @@ Model routing still reads bounded request bodies, validates the JSON object, and
 
 ## Response usage observation
 
-[`usageEvents.feed`](../../src/internal/proxy/usage.go) appends line segments in batches instead of processing and appending each byte individually. CR, LF, CRLF, fragmented reads, event size bounds, and event dispatch remain part of the parser's contract.
+[`usageEvents.feed`](../../src/internal/proxy/usage/usage.go) appends line segments in batches instead of processing and appending each byte individually. CR, LF, CRLF, fragmented reads, event size bounds, and event dispatch remain part of the parser's contract.
 
 Content events without a possible non-null `usage` value bypass JSON decoding. The precheck recognizes case folding, continues scanning after null values for duplicate or nested usage, and falls back to the JSON decoder when strings contain escapes. Missing and null usage objects return before token field decoding. Integer token counts use `strconv.ParseInt` after the containing JSON has been validated, retaining signed 64-bit range checks and rejection of negative values, fractional values, strings, and overflow.
 
@@ -36,15 +36,15 @@ Ineligible requests no longer receive an unnecessary usage context value. Eligib
 
 ## Rate limiting
 
-The baseline local memory limiter serialized all accounts behind one mutex. [`memoryLimiter`](../../src/internal/bucket/memory.go) partitions account states into sixteen shards selected from the already hashed account key. Each account still checks request and token balances under one mutex, while accounts in different shards can proceed concurrently. The global bucket retains a single shared balance.
+The baseline local memory limiter serialized all accounts behind one mutex. [`memory.Limiter`](../../src/internal/bucket/memory/memory.go) partitions account states into sixteen shards selected from the already hashed account key. Each account still checks request and token balances under one mutex, while accounts in different shards can proceed concurrently. The global bucket retains a single shared balance.
 
 `Update` and `Close` lock every shard in a fixed order so changes remain atomic across accounts. Periodic reclamation scans shards individually and removes only fully replenished states. Admission still uses reservations and cancellation to preserve retry rounding and avoid deducting request capacity for rejected calls.
 
-[`distributedLimiter.submit`](../../src/internal/bucket/distributed.go) returns before constructing a timeout context when usage accounting is a no-op. Redis atomic scripts, mutation retry settings, Raft command ordering, and majority commit requirements retain their existing behavior. Network and consensus latency remain costs of the shared backends.
+[`distributed.Limiter.submit`](../../src/internal/bucket/distributed/distributed.go) returns before constructing a timeout context when usage accounting is a no-op. Redis atomic scripts, mutation retry settings, Raft command ordering, and majority commit requirements retain their existing behavior. Network and consensus latency remain costs of the shared backends.
 
 ## Observability
 
-[`Telemetry.Middleware`](../../src/internal/observability/http.go) bypasses timing and attribute construction when tracing, OTLP metrics, and access logging are inactive. Disabled OTLP metrics no longer construct attributes or invoke no-op instruments. The fast path still invokes Echo's error handler when the next handler returns an error.
+[`Telemetry.Middleware`](../../src/internal/observability/telemetry/http.go) bypasses timing and attribute construction when tracing, OTLP metrics, and access logging are inactive. Disabled OTLP metrics no longer construct attributes or invoke no-op instruments. The fast path still invokes Echo's error handler when the next handler returns an error.
 
 Access logs use typed `slog.Attr` values and are constructed only when the logger accepts the `info` level. Enabled OTLP metric observations use attribute sets, while fixed rate limiter outcomes reuse their metric options. Prometheus rate limiter counters are resolved once per outcome, retaining lazy series creation.
 

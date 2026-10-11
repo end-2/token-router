@@ -31,6 +31,16 @@ import (
 
 const instrumentationName = "token-router"
 
+var limitOutcomes = [...]string{"allowed", "denied", "error"}
+
+var limitOptions = func() [3][]metric.AddOption {
+	var options [3][]metric.AddOption
+	for i, outcome := range limitOutcomes {
+		options[i] = []metric.AddOption{metric.WithAttributes(attribute.String("result", outcome))}
+	}
+	return options
+}()
+
 // Telemetry owns isolated OpenTelemetry providers and the application logger.
 type Telemetry struct {
 	logger        *slog.Logger
@@ -185,11 +195,18 @@ func (t *Telemetry) Shutdown(ctx context.Context) error {
 
 // RecordLimit records a fixed outcome without including storage errors or keys.
 func (t *Telemetry) RecordLimit(ctx context.Context, allowed bool, err error) {
-	result := "allowed"
-	if err != nil {
-		result = "error"
-	} else if !allowed {
-		result = "denied"
+	if t.metrics == nil {
+		return
 	}
-	t.limits.Add(ctx, 1, metric.WithAttributes(attribute.String("result", result)))
+	t.limits.Add(ctx, 1, limitOptions[limitOutcome(allowed, err)]...)
+}
+
+func limitOutcome(allowed bool, err error) int {
+	if err != nil {
+		return 2
+	}
+	if !allowed {
+		return 1
+	}
+	return 0
 }

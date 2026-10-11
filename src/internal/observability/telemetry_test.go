@@ -16,6 +16,8 @@ import (
 
 	"github.com/labstack/echo/v5"
 	"go.opentelemetry.io/otel/propagation"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	logscollector "go.opentelemetry.io/proto/otlp/collector/logs/v1"
@@ -207,6 +209,19 @@ func TestTelemetryExportsCorrelatedSanitizedSignalsOnShutdown(t *testing.T) {
 	if got := metrics["token_router.http.requests"].GetSum().DataPoints[0].GetAsInt(); got != 1 {
 		t.Errorf("request counter=%d", got)
 	}
+	requestAttrs := metrics["token_router.http.requests"].GetSum().DataPoints[0].Attributes
+	if len(requestAttrs) != 3 || stringAttr(requestAttrs, "http.request.method") != http.MethodPost || stringAttr(requestAttrs, "http.route") != "/v1/*" {
+		t.Errorf("request attributes=%v", requestAttrs)
+	}
+	for _, attr := range requestAttrs {
+		if attr.Key == "http.response.status_code" && attr.Value.GetIntValue() != http.StatusCreated {
+			t.Errorf("request status attribute=%v", attr)
+		}
+	}
+	durationAttrs := metrics["token_router.http.request.duration"].GetHistogram().DataPoints[0].Attributes
+	if len(durationAttrs) != 2 || stringAttr(durationAttrs, "http.request.method") != http.MethodPost || stringAttr(durationAttrs, "http.route") != "/v1/*" {
+		t.Errorf("duration attributes=%v", durationAttrs)
+	}
 	if got := metrics["token_router.http.requests.in_flight"].GetSum().DataPoints[0].GetAsInt(); got != 0 {
 		t.Errorf("in flight=%d", got)
 	}
@@ -303,6 +318,192 @@ func TestTelemetrySignalSelectionAndInstanceIsolation(t *testing.T) {
 			}
 			if tc.enabled && tc.traces && stringAttr(capture.traces[0].ResourceSpans[0].Resource.Attributes, "service.instance.id") != "explicit-instance" {
 				t.Fatal("configured instance identity was not exported")
+			}
+		})
+	}
+}
+
+func TestDisabledRequestTelemetryPreservesErrorHandling(t *testing.T) {
+	for _, logs := range []bool{false, true} {
+		name := "disabled logs"
+		if logs {
+			name = "filtered logs"
+		}
+		t.Run(name, func(t *testing.T) {
+			cfg := config.Defaults().Telemetry
+			cfg.Logs.Enabled, cfg.Logs.Level = logs, "warn"
+			var output bytes.Buffer
+			telemetry, err := NewTelemetry(context.Background(), cfg, &output)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { shutdownTelemetry(t, telemetry) })
+			e := echo.New()
+			e.Use(telemetry.Middleware)
+			request := httptest.NewRequest(http.MethodGet, "/failure", nil)
+			e.GET("/failure", func(c *echo.Context) error {
+				if c.Request() != request {
+					t.Error("disabled telemetry replaced the request")
+				}
+				return echo.NewHTTPError(http.StatusConflict, "conflict")
+			})
+			handleError := e.HTTPErrorHandler
+			errorCalls := 0
+			e.HTTPErrorHandler = func(c *echo.Context, err error) {
+				errorCalls++
+				handleError(c, err)
+			}
+			response := httptest.NewRecorder()
+			e.ServeHTTP(response, request)
+			if response.Code != http.StatusConflict || errorCalls != 1 || output.Len() != 0 {
+				t.Fatalf("status=%d error calls=%d output=%s", response.Code, errorCalls, output.String())
+			}
+		})
+	}
+}
+
+func TestConcurrentLimitMeasurements(t *testing.T) {
+	reader := sdkmetric.NewManualReader()
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	t.Cleanup(func() {
+		if err := provider.Shutdown(context.Background()); err != nil {
+			t.Error(err)
+		}
+	})
+	telemetry := &Telemetry{metrics: provider}
+	if err := telemetry.createInstruments(provider.Meter(instrumentationName)); err != nil {
+		t.Fatal(err)
+	}
+	metrics, err := New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	families, err := metrics.registry.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, family := range families {
+		if family.GetName() == "token_router_rate_limit_decisions_total" {
+			t.Fatal("limit series appeared before a decision")
+		}
+	}
+	const workers, decisions = 12, 20
+	var wg sync.WaitGroup
+	for range workers {
+		wg.Go(func() {
+			for range decisions {
+				for _, tc := range []struct {
+					allowed bool
+					err     error
+				}{{allowed: true}, {}, {allowed: true, err: io.ErrUnexpectedEOF}} {
+					telemetry.RecordLimit(context.Background(), tc.allowed, tc.err)
+					metrics.RecordLimit(tc.allowed, tc.err)
+				}
+			}
+		})
+	}
+	wg.Wait()
+	want := map[string]int64{"allowed": workers * decisions, "denied": workers * decisions, "error": workers * decisions}
+	var exported metricdata.ResourceMetrics
+	if err := reader.Collect(context.Background(), &exported); err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]int64{}
+	for _, scope := range exported.ScopeMetrics {
+		for _, measurement := range scope.Metrics {
+			if measurement.Name != "token_router.rate_limit.decisions" {
+				continue
+			}
+			for _, point := range measurement.Data.(metricdata.Sum[int64]).DataPoints {
+				result, ok := point.Attributes.Value("result")
+				if !ok {
+					t.Fatal("missing result attribute")
+				}
+				seen[result.AsString()] = point.Value
+			}
+		}
+	}
+	if len(seen) != len(want) {
+		t.Fatalf("OTLP limit series=%v", seen)
+	}
+	for outcome, count := range want {
+		if seen[outcome] != count {
+			t.Errorf("OTLP result=%s count=%d want=%d", outcome, seen[outcome], count)
+		}
+	}
+	families, err = metrics.registry.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen = map[string]int64{}
+	for _, family := range families {
+		if family.GetName() != "token_router_rate_limit_decisions_total" {
+			continue
+		}
+		for _, measurement := range family.Metric {
+			for _, label := range measurement.Label {
+				if label.GetName() == "result" {
+					seen[label.GetValue()] = int64(measurement.GetCounter().GetValue())
+				}
+			}
+		}
+	}
+	if len(seen) != len(want) {
+		t.Fatalf("Prometheus limit series=%v", seen)
+	}
+	for outcome, count := range want {
+		if seen[outcome] != count {
+			t.Errorf("Prometheus result=%s count=%d want=%d", outcome, seen[outcome], count)
+		}
+	}
+}
+
+func TestUnsampledTransportPreservesPropagationAndResponse(t *testing.T) {
+	for _, failure := range []bool{false, true} {
+		name := "response body"
+		if failure {
+			name = "transport error"
+		}
+		t.Run(name, func(t *testing.T) {
+			provider := sdktrace.NewTracerProvider(sdktrace.WithSampler(sdktrace.NeverSample()))
+			t.Cleanup(func() {
+				if err := provider.Shutdown(context.Background()); err != nil {
+					t.Error(err)
+				}
+			})
+			body := io.NopCloser(strings.NewReader("stream"))
+			response := &http.Response{StatusCode: http.StatusOK, Body: body}
+			var transportErr error
+			if failure {
+				response, transportErr = nil, io.ErrUnexpectedEOF
+			}
+			request := httptest.NewRequest(http.MethodPost, "http://upstream/v1/chat/completions", nil)
+			request.Header.Set("traceparent", "private-parent")
+			request.Header.Set("tracestate", "private-state")
+			transport := tracedTransport{
+				tracer: provider.Tracer(instrumentationName), propagator: propagation.TraceContext{},
+				base: roundTripperFunc(func(outgoing *http.Request) (*http.Response, error) {
+					parent := outgoing.Header.Get("traceparent")
+					if parent == "private-parent" || !strings.HasSuffix(parent, "-00") || outgoing.Header.Get("tracestate") != "" {
+						t.Errorf("unsampled propagation: %v", outgoing.Header)
+					}
+					return response, transportErr
+				}),
+			}
+			got, err := transport.RoundTrip(request)
+			if got != response || !errors.Is(err, transportErr) {
+				t.Fatalf("response=%v err=%v", got, err)
+			}
+			if !failure && got.Body != body {
+				t.Error("nonrecording span wrapped the response body")
+			}
+			if request.Header.Get("traceparent") != "private-parent" || request.Header.Get("tracestate") != "private-state" {
+				t.Errorf("original headers changed: %v", request.Header)
+			}
+			if got != nil {
+				if err := got.Body.Close(); err != nil {
+					t.Fatal(err)
+				}
 			}
 		})
 	}

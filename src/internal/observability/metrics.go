@@ -4,6 +4,7 @@ package observability
 import (
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/labstack/echo/v5"
@@ -14,11 +15,12 @@ import (
 
 // Metrics records bounded HTTP labels and rate limiter outcomes.
 type Metrics struct {
-	registry *prometheus.Registry
-	requests *prometheus.CounterVec
-	duration *prometheus.HistogramVec
-	inFlight prometheus.Gauge
-	limits   *prometheus.CounterVec
+	registry      *prometheus.Registry
+	requests      *prometheus.CounterVec
+	duration      *prometheus.HistogramVec
+	inFlight      prometheus.Gauge
+	limits        *prometheus.CounterVec
+	limitCounters [3]func() prometheus.Counter
 }
 
 // New creates collectors without changing the process-wide default registry.
@@ -45,6 +47,12 @@ func New() (*Metrics, error) {
 		if err := m.registry.Register(collector); err != nil {
 			return nil, err
 		}
+	}
+	// Create each series on its first observation and reuse the counter afterwards.
+	for i, outcome := range limitOutcomes {
+		m.limitCounters[i] = sync.OnceValue(func() prometheus.Counter {
+			return m.limits.WithLabelValues(outcome)
+		})
 	}
 	return m, nil
 }
@@ -82,13 +90,7 @@ func (m *Metrics) Middleware(next echo.HandlerFunc) echo.HandlerFunc {
 
 // RecordLimit records one of the fixed rate limiter outcome labels.
 func (m *Metrics) RecordLimit(allowed bool, err error) {
-	result := "allowed"
-	if err != nil {
-		result = "error"
-	} else if !allowed {
-		result = "denied"
-	}
-	m.limits.WithLabelValues(result).Inc()
+	m.limitCounters[limitOutcome(allowed, err)]().Inc()
 }
 
 func boundedMethod(method string) string {

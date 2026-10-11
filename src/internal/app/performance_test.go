@@ -22,7 +22,7 @@ func BenchmarkProxyPipeline(b *testing.B) {
 		b.Run(name, func(b *testing.B) {
 			cfg := config.Defaults()
 			cfg.RateLimit.RequestsPerSecond, cfg.RateLimit.Burst = 1e12, 1e9
-			cfg.Upstream.BaseURLs = []string{"http://upstream.invalid"}
+			cfg.Upstream.Routes[0].BaseURLs = []string{"http://upstream.invalid"}
 			cfg.Upstream.RequestTimeout = 0
 			if name == "minimal" {
 				cfg.Telemetry.Logs.Enabled = false
@@ -32,7 +32,7 @@ func BenchmarkProxyPipeline(b *testing.B) {
 				cfg.RateLimit.Account.Enabled = true
 			}
 			if name == "model" {
-				cfg.Upstream.Routes = []config.UpstreamRoute{{Model: "benchmark", BaseURLs: cfg.Upstream.BaseURLs}}
+				cfg.Upstream.Routes[0].Model = "benchmark"
 			}
 			payload := `{"model":"benchmark","messages":[{"role":"user","content":"hello"}]}`
 			response := `{"choices":[{"message":{"content":"` + strings.Repeat("x", 1024) + `"}}],"usage":{"total_tokens":10}}`

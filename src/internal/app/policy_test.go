@@ -62,7 +62,7 @@ func TestAdminUpdatesPersistAndRejectInvalidChanges(t *testing.T) {
 					c.RateLimit.Redis.Address = miniredis.RunT(t).Addr()
 				}
 			})
-			response := adminRequest(t, a, http.MethodPatch, `{"upstream":{"base_urls":["localhost:9001"],"request_timeout":"2s"},"rate_limit":{"burst":3,"tokens_per_second":2,"token_burst":5}}`)
+			response := adminRequest(t, a, http.MethodPatch, `{"upstream":{"routes":[{"host":"*","model":"*","base_urls":["localhost:9001"]}],"request_timeout":"2s"},"rate_limit":{"burst":3,"tokens_per_second":2,"token_burst":5}}`)
 			if response.Code != http.StatusOK {
 				t.Fatalf("update: %d %s", response.Code, response.Body)
 			}
@@ -80,7 +80,8 @@ func TestAdminUpdatesPersistAndRejectInvalidChanges(t *testing.T) {
 			}
 			for _, body := range []string{
 				`{"rate_limit":{"backend":"redis"}}`, `{"rate_limit":{"enabled":false}}`,
-				`{"upstream":{"base_urls":["bad-secret"]},"rate_limit":{"burst":10}}`,
+				`{"upstream":{"base_urls":["localhost:9000"]}}`, `{"upstream":{"routes":[]}}`,
+				`{"upstream":{"routes":[{"host":"*","model":"*","base_urls":["bad-secret"]}]},"rate_limit":{"burst":10}}`,
 				`{"rate_limit":{"tokens_per_second":0}}`, `{"upstream":{"api_key":null}}`,
 				`{"upstream":{"transport":{"max_conns_per_host":-1}}}`,
 				`{"upstream":{"transport":{"tls_handshake_timeout":"-1s"}}}`,
@@ -270,7 +271,7 @@ func TestPolicySwapPreservesStreamAndAccountsUsage(t *testing.T) {
 	t.Cleanup(next.Close)
 	updated := make(chan *httptest.ResponseRecorder, 1)
 	go func() {
-		updated <- adminRequest(t, a, http.MethodPatch, fmt.Sprintf(`{"upstream":{"base_urls":[%q]},"rate_limit":{"token_burst":20}}`, next.URL))
+		updated <- adminRequest(t, a, http.MethodPatch, fmt.Sprintf(`{"upstream":{"routes":[{"host":"*","model":"*","base_urls":[%q]}]},"rate_limit":{"token_burst":20}}`, next.URL))
 	}()
 	select {
 	case w := <-updated:

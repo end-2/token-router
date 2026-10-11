@@ -26,11 +26,16 @@ var _ = Describe("upstream routing", func() {
 			})
 			addresses[name] = upstream.URL
 		}
-		process := startRouter(ctx, addresses["default"], routerOptions{yaml: fmt.Sprintf(`upstream:
+		process := startRouter(ctx, "", routerOptions{yaml: fmt.Sprintf(`upstream:
   routes:
-    - host: api.example.com
+    - host: "*"
+      model: "*"
       base_urls: [%q]
-    - model: chat
+    - host: api.example.com
+      model: "*"
+      base_urls: [%q]
+    - host: "*"
+      model: chat
       base_urls: [%q]
     - host: api.example.com
       model: chat
@@ -38,7 +43,7 @@ var _ = Describe("upstream routing", func() {
     - host: API.EXAMPLE.COM.
       model: chat
       base_urls: [%q]
-`, addresses["host"], addresses["model"], strings.TrimPrefix(addresses["first"], "http://"), addresses["second"], addresses["third"])})
+`, addresses["default"], addresses["host"], addresses["model"], strings.TrimPrefix(addresses["first"], "http://"), addresses["second"], addresses["third"])})
 		client := newHTTPClient()
 		for _, scenario := range []struct{ host, model, want string }{
 			{"API.EXAMPLE.COM:8080", "chat", "first"},

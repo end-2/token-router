@@ -31,7 +31,7 @@ func TestDistributedServerAdminAndAccounts(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Server.Address, cfg.Admin.Address = address(), address()
 	cfg.Admin.Enabled = true
-	cfg.Upstream.BaseURLs = []string{upstream.URL}
+	cfg.Upstream.Routes[0].BaseURLs = []string{upstream.URL}
 	cfg.RateLimit.RequestsPerSecond, cfg.RateLimit.Burst = .001, 1
 	cfg.RateLimit.Account.Enabled = true
 	cfg.RateLimit.Memory.Distributed = config.Distributed{Enabled: true, Address: cfg.Admin.Address,

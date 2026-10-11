@@ -120,7 +120,7 @@ var _ = Describe("the running proxy", func() {
 			<-req.Context().Done()
 			close(canceled)
 		})
-		process := startRouter(ctx, upstream.URL, routerOptions{flags: []string{"--upstream-response-header-timeout", "100ms"}})
+		process := startRouter(ctx, upstream.URL, routerOptions{flags: []string{"--transport-response-header-timeout", "100ms"}})
 		response := request(ctx, newHTTPClient(), http.MethodGet, process.url+"/v1/models", "", nil)
 		Expect(response.StatusCode).To(Equal(http.StatusGatewayTimeout))
 		Expect(readBody(response)).To(MatchJSON(`{"error":{"message":"The upstream request timed out.","type":"proxy_error","code":"upstream_timeout"}}`))

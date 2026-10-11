@@ -43,7 +43,7 @@ func testApplication(t *testing.T, upstream http.Handler, limiter bucket.Reconfi
 	for _, apply := range configure {
 		apply(&cfg)
 	}
-	cfg.Upstream.BaseURLs = []string{u.URL}
+	cfg.Upstream.Routes[0].BaseURLs = []string{u.URL}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	a := &application{cfg: cfg, logger: logger, limiter: limiter}
 	p, err := a.newProxy()

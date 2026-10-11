@@ -24,7 +24,7 @@ var _ = Describe("policy configuration", func() {
 				writeBody(w, `{"usage":{"total_tokens":10}}`)
 			})
 			file := filepath.Join(GinkgoT().TempDir(), "policy.yaml")
-			Expect(os.WriteFile(file, fmt.Appendf(nil, "upstream:\n  base_urls: [%q]\nrate_limit:\n  requests_per_second: 1000\n  burst: 100\n", first.URL), 0600)).To(Succeed())
+			Expect(os.WriteFile(file, fmt.Appendf(nil, "upstream:\n  routes: [{host: '*', model: '*', base_urls: [%q]}]\nrate_limit:\n  requests_per_second: 1000\n  burst: 100\n", first.URL), 0600)).To(Succeed())
 			environment := map[string]string{"TOKEN_ROUTER_RATE_LIMIT_ENABLED": "true"}
 			if backend == "redis" {
 				environment = redisEnvironment(newRedisKey())
@@ -41,7 +41,7 @@ var _ = Describe("policy configuration", func() {
 			Expect(request(ctx, client, http.MethodGet, publicURL+"/config", "", nil).StatusCode).To(Equal(http.StatusNotFound))
 			Expect(request(ctx, client, http.MethodGet, adminURL+"/v1/models", "", nil).StatusCode).To(Equal(http.StatusNotFound))
 
-			update := fmt.Sprintf(`{"upstream":{"base_urls":[%q]},"rate_limit":{"tokens_per_second":0.001,"token_burst":10}}`, second.URL)
+			update := fmt.Sprintf(`{"upstream":{"routes":[{"host":"*","model":"*","base_urls":[%q]}]},"rate_limit":{"tokens_per_second":0.001,"token_burst":10}}`, second.URL)
 			response := request(ctx, client, http.MethodPatch, adminURL+"/config", update, map[string]string{"Content-Type": "application/json"})
 			Expect(response.StatusCode).To(Equal(http.StatusOK))
 			Expect(readBody(response)).To(ContainSubstring(second.URL))
@@ -62,7 +62,7 @@ var _ = Describe("policy configuration", func() {
 			Expect(readBody(request(ctx, client, http.MethodGet, adminURL+"/config", "", nil))).To(ContainSubstring(second.URL))
 
 			replacement := filepath.Join(filepath.Dir(file), "next.yaml")
-			Expect(os.WriteFile(replacement, fmt.Appendf(nil, "upstream:\n  base_urls: [%q]\nrate_limit:\n  requests_per_second: 1000\n  burst: 100\n", first.URL), 0600)).To(Succeed())
+			Expect(os.WriteFile(replacement, fmt.Appendf(nil, "upstream:\n  routes: [{host: '*', model: '*', base_urls: [%q]}]\nrate_limit:\n  requests_per_second: 1000\n  burst: 100\n", first.URL), 0600)).To(Succeed())
 			Expect(os.Rename(replacement, file)).To(Succeed())
 			Eventually(func(g Gomega) {
 				response := request(ctx, client, http.MethodGet, publicURL+"/v1/models", "", nil)

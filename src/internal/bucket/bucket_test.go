@@ -14,7 +14,7 @@ import (
 
 func TestMemoryRefill(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
-	l := newMemory(2, 2)
+	l := newMemory(2, 2, 0, 0)
 	l.now = func() time.Time { return now }
 
 	for _, tt := range []struct {
@@ -45,7 +45,7 @@ func TestMemoryRefill(t *testing.T) {
 }
 
 func TestMemoryConcurrentBurst(t *testing.T) {
-	l := newMemory(10, 7)
+	l := newMemory(10, 7, 0, 0)
 	now := time.Now()
 	l.now = func() time.Time { return now }
 	var allowed atomic.Int64
@@ -72,7 +72,7 @@ func TestLimiterCancellationAndClose(t *testing.T) {
 		name string
 		new  func() Limiter
 	}{
-		{name: "memory", new: func() Limiter { return newMemory(1, 1) }},
+		{name: "memory", new: func() Limiter { return newMemory(1, 1, 0, 0) }},
 		{name: "disabled", new: func() Limiter { return &disabledLimiter{} }},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -98,12 +98,17 @@ func TestLimiterCancellationAndClose(t *testing.T) {
 }
 
 func TestMemoryConcurrentClose(t *testing.T) {
-	l := newMemory(10, 10)
+	l := newMemory(10, 10, 0, 0)
 	var wg sync.WaitGroup
 	for range 30 {
 		wg.Go(func() {
 			if _, err := l.Allow(context.Background()); err != nil && !errors.Is(err, ErrClosed) {
 				t.Errorf("concurrent Allow: %v", err)
+			}
+		})
+		wg.Go(func() {
+			if err := l.RecordUsage(context.Background(), 1); err != nil && !errors.Is(err, ErrClosed) {
+				t.Errorf("concurrent RecordUsage: %v", err)
 			}
 		})
 		wg.Go(func() {
@@ -126,6 +131,14 @@ func TestNewConfiguration(t *testing.T) {
 	}{
 		{name: "disabled", cfg: config.RateLimit{}},
 		{name: "memory", cfg: config.RateLimit{Enabled: true, Backend: "memory", RequestsPerSecond: 1, Burst: 1}},
+		{name: "memory with tokens", cfg: config.RateLimit{Enabled: true, Backend: "memory", RequestsPerSecond: 1, Burst: 1, TokensPerSecond: 2, TokenBurst: 3}},
+		{name: "token rate only", cfg: config.RateLimit{Enabled: true, Backend: "memory", RequestsPerSecond: 1, Burst: 1, TokensPerSecond: 1}, fail: true},
+		{name: "token burst only", cfg: config.RateLimit{Enabled: true, Backend: "memory", RequestsPerSecond: 1, Burst: 1, TokenBurst: 1}, fail: true},
+		{name: "negative token rate", cfg: config.RateLimit{Enabled: true, Backend: "memory", RequestsPerSecond: 1, Burst: 1, TokensPerSecond: -1, TokenBurst: 1}, fail: true},
+		{name: "negative token burst", cfg: config.RateLimit{Enabled: true, Backend: "memory", RequestsPerSecond: 1, Burst: 1, TokensPerSecond: 1, TokenBurst: -1}, fail: true},
+		{name: "nan token rate", cfg: config.RateLimit{Enabled: true, Backend: "memory", RequestsPerSecond: 1, Burst: 1, TokensPerSecond: math.NaN(), TokenBurst: 1}, fail: true},
+		{name: "infinite token rate", cfg: config.RateLimit{Enabled: true, Backend: "memory", RequestsPerSecond: 1, Burst: 1, TokensPerSecond: math.Inf(1), TokenBurst: 1}, fail: true},
+		{name: "token refill overflow", cfg: config.RateLimit{Enabled: true, Backend: "memory", RequestsPerSecond: 1, Burst: 1, TokensPerSecond: math.SmallestNonzeroFloat64, TokenBurst: 1}, fail: true},
 		{name: "unknown", cfg: config.RateLimit{Enabled: true, Backend: "unknown", RequestsPerSecond: 1, Burst: 1}, fail: true},
 		{name: "zero rate", cfg: config.RateLimit{Enabled: true, Backend: "memory", Burst: 1}, fail: true},
 		{name: "nan rate", cfg: config.RateLimit{Enabled: true, Backend: "memory", RequestsPerSecond: math.NaN(), Burst: 1}, fail: true},

@@ -15,42 +15,73 @@ import (
 	"token-router/src/internal/config"
 )
 
-// Redis TIME keeps replicas on one clock. A key may expire only after an idle
-// bucket could refill completely, so expiry never grants capacity early.
+// Redis TIME keeps replicas on one clock. Both limits share one atomic mutation.
+// A key expires only after all balances, including token debt, can refill fully.
 var tokenScript = redis.NewScript(`
 local clock = redis.call('TIME')
 local now = tonumber(clock[1]) * 1000 + tonumber(clock[2]) / 1000
 local rate = tonumber(ARGV[1])
 local capacity = tonumber(ARGV[2])
 local ttl = tonumber(ARGV[3])
-local state = redis.call('HMGET', KEYS[1], 'tokens', 'updated_at')
+local usage_rate = tonumber(ARGV[4])
+local usage_capacity = tonumber(ARGV[5])
+local operation = ARGV[6]
+local consumed = tonumber(ARGV[7])
+local max_interval = tonumber(ARGV[8])
+local state = redis.call('HMGET', KEYS[1], 'tokens', 'updated_at', 'usage_tokens', 'usage_updated_at')
 local tokens = tonumber(state[1]) or capacity
 local updated = tonumber(state[2]) or now
 now = math.max(now, updated)
+local usage_tokens = tonumber(state[3]) or usage_capacity
+local usage_updated = tonumber(state[4]) or now
+if usage_rate > 0 then
+    now = math.max(now, usage_updated)
+    usage_tokens = math.min(usage_capacity, usage_tokens + (now - usage_updated) * usage_rate / 1000)
+end
 tokens = math.min(capacity, tokens + (now - updated) * rate / 1000)
 local allowed = 0
 local retry = 0
-if tokens >= 1 then
-    tokens = tokens - 1
-    allowed = 1
-else
-    retry = math.max(1, math.ceil((1 - tokens) / rate * 1000))
+if operation == 'allow' then
+    if tokens >= 1 and (usage_rate == 0 or usage_tokens >= 1) then
+        tokens = tokens - 1
+        allowed = 1
+    else
+        if tokens < 1 then
+            retry = math.max(1, math.ceil((1 - tokens) / rate * 1000))
+        end
+        if usage_rate > 0 and usage_tokens < 1 then
+            retry = math.max(retry, math.ceil((1 - usage_tokens) / usage_rate * 1000))
+        end
+        retry = math.min(max_interval, retry)
+    end
+elseif usage_rate > 0 then
+    usage_tokens = usage_tokens - consumed
 end
 redis.call('HSET', KEYS[1], 'tokens', string.format('%.17g', tokens), 'updated_at', string.format('%.17g', now))
-redis.call('PEXPIRE', KEYS[1], ttl)
+if usage_rate > 0 then
+    redis.call('HSET', KEYS[1], 'usage_tokens', string.format('%.17g', usage_tokens), 'usage_updated_at', string.format('%.17g', now))
+    ttl = math.max(ttl, math.ceil((usage_capacity - usage_tokens) / usage_rate * 1000))
+end
+if ttl <= max_interval then
+    redis.call('PEXPIRE', KEYS[1], ttl)
+else
+    redis.call('PERSIST', KEYS[1])
+end
 return {allowed, retry}
 `)
 
 type redisLimiter struct {
-	client   *redis.Client
-	key      string
-	rate     float64
-	burst    int
-	ttl      int64
-	timeout  time.Duration
-	closed   atomic.Bool
-	once     sync.Once
-	closeErr error
+	client     *redis.Client
+	key        string
+	rate       float64
+	burst      int
+	ttl        int64
+	usageRate  float64
+	usageBurst int
+	timeout    time.Duration
+	closed     atomic.Bool
+	once       sync.Once
+	closeErr   error
 }
 
 func newRedis(ctx context.Context, cfg config.RateLimit) (*redisLimiter, error) {
@@ -74,12 +105,14 @@ func newRedis(ctx context.Context, cfg config.RateLimit) (*redisLimiter, error) 
 		opts.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}
 	}
 	l := &redisLimiter{
-		client:  redis.NewClient(opts),
-		key:     rc.Key,
-		rate:    cfg.RequestsPerSecond,
-		burst:   cfg.Burst,
-		ttl:     int64(math.Max(1, math.Ceil(float64(cfg.Burst)/cfg.RequestsPerSecond*1000))),
-		timeout: max(rc.DialTimeout, rc.ReadTimeout, rc.WriteTimeout),
+		client:     redis.NewClient(opts),
+		key:        rc.Key,
+		rate:       cfg.RequestsPerSecond,
+		burst:      cfg.Burst,
+		ttl:        int64(math.Max(1, math.Ceil(float64(cfg.Burst)/cfg.RequestsPerSecond*1000))),
+		usageRate:  cfg.TokensPerSecond,
+		usageBurst: cfg.TokenBurst,
+		timeout:    max(rc.DialTimeout, rc.ReadTimeout, rc.WriteTimeout),
 	}
 	pingCtx, cancel := context.WithTimeout(ctx, l.timeout)
 	defer cancel()
@@ -102,7 +135,7 @@ func (l *redisLimiter) Allow(ctx context.Context) (Decision, error) {
 	}
 	commandCtx, cancel := context.WithTimeout(ctx, l.timeout)
 	defer cancel()
-	values, err := tokenScript.Run(commandCtx, l.client, []string{l.key}, l.rate, l.burst, l.ttl).Int64Slice()
+	values, err := l.run(commandCtx, "allow", 0)
 	if err != nil {
 		return Decision{}, backendError(commandCtx, "allow")
 	}
@@ -110,6 +143,32 @@ func (l *redisLimiter) Allow(ctx context.Context) (Decision, error) {
 		return Decision{}, ErrUnavailable
 	}
 	return Decision{Allowed: values[0] == 1, RetryAfter: time.Duration(values[1]) * time.Millisecond}, nil
+}
+
+func (l *redisLimiter) RecordUsage(ctx context.Context, tokens int64) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if l.closed.Load() {
+		return ErrClosed
+	}
+	if tokens < 0 {
+		return ErrInvalidUsage
+	}
+	if l.usageRate == 0 || tokens == 0 {
+		return nil
+	}
+	commandCtx, cancel := context.WithTimeout(ctx, l.timeout)
+	defer cancel()
+	if _, err := l.run(commandCtx, "usage", tokens); err != nil {
+		return backendError(commandCtx, "record usage")
+	}
+	return nil
+}
+
+func (l *redisLimiter) run(ctx context.Context, operation string, tokens int64) ([]int64, error) {
+	return tokenScript.Run(ctx, l.client, []string{l.key}, l.rate, l.burst, l.ttl,
+		l.usageRate, l.usageBurst, operation, tokens, math.MaxInt64/int64(time.Millisecond)).Int64Slice()
 }
 
 func (l *redisLimiter) Close() error {

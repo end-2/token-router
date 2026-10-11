@@ -30,9 +30,11 @@ The following fields are allowed in `policy.yaml`. See the root [`policy.yaml`](
 
 ```yaml
 upstream:
-  base_urls:
-    - "http://127.0.0.1:8000"
-  routes: []
+  routes:
+    - host: "*"
+      model: "*"
+      base_urls:
+        - "http://127.0.0.1:8000"
   request_timeout: 0s
 rate_limit:
   requests_per_second: 10
@@ -94,7 +96,7 @@ curl --fail -X PATCH http://127.0.0.1:9091/config \
 
 curl --fail -X PATCH http://127.0.0.1:9091/config \
   -H 'Content-Type: application/json' \
-  --data '{"upstream":{"base_urls":["http://127.0.0.1:8001"],"routes":[]}}'
+  --data '{"upstream":{"routes":[{"host":"*","model":"*","base_urls":["http://127.0.0.1:8001"]}]}}'
 
 curl --fail -X PUT http://127.0.0.1:9091/config \
   -H 'Content-Type: application/yaml' --data-binary @policy.yaml

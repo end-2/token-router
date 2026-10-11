@@ -47,7 +47,7 @@ The suite runs these scenarios:
 | Configuration precedence | Upstream authentication follows defaults, YAML, environment variables, then CLI arguments |
 | Policy configuration | File replacement detection, dedicated admin port isolation, API changes and persisted values after restart, backend change rejection, and token limit activation for memory and Redis (2 table entries) |
 | HTTP forwarding | Preserves methods, base URL paths, queries, bodies, OpenAI organization and project headers, and upstream error responses |
-| Upstream routing | Host and model conditions, merging URL and address arrays with identical conditions, round robin, and default destinations |
+| Upstream routing | Host and model conditions, merging URL and address arrays with identical conditions, round robin, and wildcard default routes |
 | Routed SSE | Incremental SSE forwarding from a model-selected upstream and shared token usage limits |
 | Health and metrics | `/healthz`, `/readyz`, a custom metrics path on a separate listener, and Prometheus request counters |
 | Upstream timeout | Response header timeouts return `504` and `upstream_timeout` and cancel upstream requests |

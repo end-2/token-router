@@ -25,7 +25,7 @@ Fixed settings are in [`config.yaml`](../../config.yaml); upstream settings, rat
 | `server` | API listener address, HTTP timeouts, header size, and shutdown wait time |
 | `admin` | Optional dedicated admin API listener activation and address |
 | `policy` | Separate file for upstream settings, rate limit values, and account settings, plus the content check interval |
-| `upstream` (`policy.yaml`) | Default destinations and routing rules, authentication headers, and overall request timeout |
+| `upstream` (`policy.yaml`) | Routing rules including wildcard defaults, authentication headers, and overall request timeout |
 | `transport` (`config.yaml`) | Shared upstream connection pools, TCP and TLS timeouts, HTTP/2 selection, and I/O buffers (requires restart) |
 | `rate_limit` (`config.yaml`) | Activation, `memory` or `redis` backend, distributed memory and Redis connections |
 | `rate_limit` (`policy.yaml`) | Per-second request and token refill rates, bursts, and account identification |
@@ -46,7 +46,6 @@ All leaf settings can be changed through environment variables and CLI arguments
 | `server.address` | `TOKEN_ROUTER_SERVER_ADDRESS` | `--server-address` |
 | `policy.file` | `TOKEN_ROUTER_POLICY_FILE` | `--policy-file` |
 | `policy.watch_interval` | `TOKEN_ROUTER_POLICY_WATCH_INTERVAL` | `--policy-watch-interval` |
-| `upstream.base_urls` | `TOKEN_ROUTER_UPSTREAM_BASE_URLS` | `--upstream-base-urls` |
 | `upstream.routes` | `TOKEN_ROUTER_UPSTREAM_ROUTES` | `--upstream-routes` |
 | `upstream.max_routing_body_bytes` | `TOKEN_ROUTER_UPSTREAM_MAX_ROUTING_BODY_BYTES` | `--upstream-max-routing-body-bytes` |
 | `upstream.api_key` | `TOKEN_ROUTER_UPSTREAM_API_KEY` | `--upstream-api-key` |
@@ -83,27 +82,38 @@ TOKEN_ROUTER_SERVER_ADDRESS=127.0.0.1:8081 \
 
 ## Multiple upstream routing
 
-`upstream.routes` in `policy.yaml` maps the request `Host` header and the JSON body's top-level `model` to destination arrays. `base_urls` accepts both `http` or `https` URLs and `host:port` addresses. Addresses without a scheme use HTTP and require a port. Enclose IPv6 addresses in brackets, such as `[::1]:9000`.
+All upstream destinations are configured through `upstream.routes[].base_urls` in `policy.yaml`. Each route matches the request `Host` header and the JSON body's top-level `model`. Set `host: "*"` and `model: "*"` for a default route that matches any request. Quote `"*"` in YAML because an unquoted asterisk introduces a YAML alias. The built-in default and repository policy contain this single route:
 
-- When both `host` and `model` are specified, both must match. Omitted or empty conditions match all values. Rules omitting both conditions are shared defaults. Each rule's `base_urls` must contain at least one address.
-- Rules with more specified conditions take precedence: combined `host` and `model`, then single conditions, then shared defaults. If distinct rules with the same condition count both match, the first configured rule wins.
-- `host` ignores case and a trailing hostname dot. Without a configured port, the request port is ignored; with a configured port, it is also compared. `X-Forwarded-Host` is not used. Wildcards, regular expressions, and URL-form conditions are unsupported.
-- `model` uses exact, case-sensitive string matching. Missing, `null`, or empty `model` values do not satisfy model conditions. Nested `model` fields and other keys such as `MODEL` are not used.
-- Repeated identical `host` and `model` conditions merge address arrays in registration order. Conditions identical after host normalization are also merged.
-- Addresses in the selected rule use per-process round robin. Each rule has an independent counter that also applies to concurrent requests. Separate health checks, weights, and retries to other addresses after failure are not implemented.
+```yaml
+upstream:
+  routes:
+    - host: "*"
+      model: "*"
+      base_urls:
+        - "https://api.openai.com"
+```
 
-If no rule matches, `upstream.base_urls` supplies the default pool, defaulting to `["https://api.openai.com"]`. Even a single upstream uses a one-element array. Set only `base_urls` to distribute requests across destinations without conditions.
+Supplying `routes` replaces the entire route array, including the built-in default. To reject unmatched requests, configure only specific routes and omit any rule matching all hosts and models. Requests without a matching rule return `404` and `route_not_found`. At least one route is required, and each route's `base_urls` must contain at least one address. The separate `upstream.base_urls` field and `--upstream-base-urls` option are unsupported; supply the complete route array through `TOKEN_ROUTER_UPSTREAM_ROUTES` or `--upstream-routes`.
 
-To reject unmatched requests, empty the default pool with `upstream.base_urls: []`. Requests without a matching rule then return `404` and `route_not_found`. Configuration with no destinations anywhere fails startup validation.
+`base_urls` accepts `http` or `https` URLs and `host:port` addresses. Addresses without a scheme use HTTP and require a port. Enclose IPv6 addresses in brackets, such as `[::1]:9000`. Even a single destination uses a one-element array.
+
+- Both route conditions must match. A whole-value `"*"`, an omitted condition, or an empty string matches any value, including a missing model.
+- Rules with more concrete conditions take precedence: combined host and model, then a single concrete condition, then defaults. Wildcards and empty conditions do not increase precedence. If distinct rules with the same condition count both match, the first configured rule wins.
+- Concrete `host` values ignore case and a trailing hostname dot. Without a configured port, the request port is ignored; with a configured port, it is also compared. `X-Forwarded-Host` is not used. Partial host wildcards such as `*.example.com`, regular expressions, and URL-form conditions are unsupported.
+- Concrete `model` values use exact, case-sensitive string matching. Only the whole value `"*"` is a wildcard; other model values are literal strings. Missing, `null`, or empty request models do not satisfy concrete model conditions. Nested model fields and other keys such as `MODEL` are not used.
+- Repeated equivalent host and model conditions merge address arrays in registration order. Host normalization and equivalence between `"*"` and empty conditions apply before merging.
+- Addresses in the selected rule use per-process round robin. Each pool has an independent counter that also applies to concurrent requests. Separate health checks, weights, and retries to other addresses after failure are not implemented.
 
 In the following example, `api.example.com` requests for `chat-model` cycle through three addresses from the two rules with identical conditions.
 
 ```yaml
 upstream:
-  base_urls:
-    - "http://default-a:9000"
-    - "http://default-b:9000"
   routes:
+    - host: "*"
+      model: "*"
+      base_urls:
+        - "http://default-a:9000"
+        - "http://default-b:9000"
     - host: "api.example.com"
       model: "chat-model"
       base_urls:
@@ -114,9 +124,11 @@ upstream:
       base_urls:
         - "https://inference.example.com/gateway"
     - host: "api.example.com"
+      model: "*"
       base_urls:
         - "http://host-default:8000"
-    - model: "embedding-model"
+    - host: "*"
+      model: "embedding-model"
       base_urls:
         - "http://embedding-a:8000"
         - "http://embedding-b:8000"
@@ -125,17 +137,16 @@ upstream:
 Arrays can also be supplied through environment variables and CLI arguments. These examples disable the policy file and supply arrays through startup configuration.
 
 ```sh
-TOKEN_ROUTER_UPSTREAM_BASE_URLS='["10.0.0.11:8000","https://inference.example.com"]' \
+TOKEN_ROUTER_UPSTREAM_ROUTES='[{"host":"*","model":"*","base_urls":["10.0.0.11:8000","https://inference.example.com"]}]' \
   go run ./src/cmd/token-router serve --policy-file=
 
 go run ./src/cmd/token-router serve --policy-file= \
-  --upstream-base-urls='[]' \
   --upstream-routes='[{"host":"api.example.com","model":"chat-model","base_urls":["10.0.0.11:8000","10.0.0.12:8000"]}]'
 ```
 
 ### Model inspection and body size
 
-Bodies are inspected only when model conditions can apply to the request host. If `Content-Type` is absent, `application/json`, or a media type ending in `+json`, the entire body is read to inspect the top-level `model`, then the same bytes are forwarded upstream. This applies regardless of method; bodies are not reserialized and model names are not changed. Requests using only Host conditions are not read in advance.
+Bodies are inspected only when a concrete model condition can apply to the request host. `model: "*"` alone does not trigger inspection. If `Content-Type` is absent, `application/json`, or a media type ending in `+json`, the entire body is read to inspect the top-level `model`, then the same bytes are forwarded upstream. This applies regardless of method; bodies are not reserialized and model names are not changed. When no concrete model condition applies to the host, requests are forwarded without reading the body in advance.
 
 `upstream.max_routing_body_bytes` limits bodies used for model inspection and defaults to `8388608` (8 MiB). It must be positive and applies regardless of `Content-Length`. Oversized inspection bodies return `413` and `routing_body_too_large`; invalid JSON objects return `400` and `invalid_request_body`; a `model` that is neither a string nor `null` returns `400` and `invalid_model`. An empty body is treated as a request without a model.
 

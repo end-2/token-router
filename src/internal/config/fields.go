@@ -1,10 +1,13 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
+
+	"go.yaml.in/yaml/v3"
 )
 
 // Flag describes the CLI representation of one leaf configuration setting.
@@ -46,7 +49,9 @@ func fields(c *Config) []field {
 		{"server.idle_timeout", "Keep-alive connection idle timeout", &c.Server.IdleTimeout},
 		{"server.shutdown_timeout", "Maximum graceful shutdown time", &c.Server.ShutdownTimeout},
 		{"server.max_header_bytes", "Maximum request header size in bytes", &c.Server.MaxHeaderBytes},
-		{"upstream.base_url", "Upstream base URL, without the API version path", &c.Upstream.BaseURL},
+		{"upstream.base_urls", "Default upstream pool as a JSON or YAML array; empty disables the fallback", &c.Upstream.BaseURLs},
+		{"upstream.routes", "Host and model routing rules as a JSON or YAML array", &c.Upstream.Routes},
+		{"upstream.max_routing_body_bytes", "Maximum JSON request body size inspected for model routing", &c.Upstream.MaxRoutingBodyBytes},
 		{"upstream.api_key", "Upstream API key; empty forwards incoming Authorization", &c.Upstream.APIKey},
 		{"upstream.organization", "Upstream OpenAI organization header", &c.Upstream.Organization},
 		{"upstream.project", "Upstream OpenAI project header", &c.Upstream.Project},
@@ -108,6 +113,12 @@ func (f field) string() string {
 		return strconv.FormatFloat(*value, 'g', -1, 64)
 	case *time.Duration:
 		return value.String()
+	case *[]string, *[]UpstreamRoute:
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			return ""
+		}
+		return string(encoded)
 	default:
 		return ""
 	}
@@ -126,6 +137,8 @@ func (f field) set(raw string) error {
 		*value, err = strconv.ParseFloat(raw, 64)
 	case *time.Duration:
 		*value, err = time.ParseDuration(raw)
+	case *[]string, *[]UpstreamRoute:
+		err = decodeYAMLValue([]byte(raw), value, yaml.SequenceNode)
 	default:
 		return fmt.Errorf("unsupported configuration field type")
 	}

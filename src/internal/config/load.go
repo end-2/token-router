@@ -74,13 +74,17 @@ func Load(options Options) (Config, error) {
 }
 
 func decodeYAML(data []byte, cfg *Config) error {
+	return decodeYAMLValue(data, cfg, yaml.MappingNode)
+}
+
+func decodeYAMLValue(data []byte, target any, kind yaml.Kind) error {
 	var document yaml.Node
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	if err := decoder.Decode(&document); err != nil {
 		return errors.New("invalid YAML configuration")
 	}
-	if len(document.Content) != 1 || document.Content[0].Kind != yaml.MappingNode {
-		return errors.New("configuration must be a YAML mapping")
+	if len(document.Content) != 1 || document.Content[0].Kind != kind {
+		return errors.New("configuration has an unexpected YAML value type")
 	}
 	if containsNull(&document, make(map[*yaml.Node]bool)) {
 		return errors.New("configuration must not contain null values")
@@ -91,7 +95,7 @@ func decodeYAML(data []byte, cfg *Config) error {
 	}
 	strict := yaml.NewDecoder(bytes.NewReader(data))
 	strict.KnownFields(true)
-	if err := strict.Decode(cfg); err != nil {
+	if err := strict.Decode(target); err != nil {
 		// YAML decoding errors can include API keys and other input values.
 		return errors.New("invalid YAML configuration: check field names, value types, and duration units")
 	}

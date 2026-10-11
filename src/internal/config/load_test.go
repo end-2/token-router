@@ -4,6 +4,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -155,11 +156,11 @@ func TestValidate(t *testing.T) {
 		{"negative timeout", func(c *Config) { c.Server.ReadTimeout = -time.Second }},
 		{"shutdown timeout", func(c *Config) { c.Server.ShutdownTimeout = 0 }},
 		{"header size", func(c *Config) { c.Server.MaxHeaderBytes = 0 }},
-		{"upstream scheme", func(c *Config) { c.Upstream.BaseURL = "ftp://example.com" }},
-		{"upstream host", func(c *Config) { c.Upstream.BaseURL = "https:///v1" }},
-		{"upstream userinfo", func(c *Config) { c.Upstream.BaseURL = "https://secret-value@example.com" }},
-		{"upstream query", func(c *Config) { c.Upstream.BaseURL = "https://example.com?api_key=secret-value" }},
-		{"upstream fragment", func(c *Config) { c.Upstream.BaseURL = "https://example.com#secret-value" }},
+		{"upstream scheme", func(c *Config) { c.Upstream.BaseURLs = []string{"ftp://example.com"} }},
+		{"upstream host", func(c *Config) { c.Upstream.BaseURLs = []string{"https:///v1"} }},
+		{"upstream userinfo", func(c *Config) { c.Upstream.BaseURLs = []string{"https://secret-value@example.com"} }},
+		{"upstream query", func(c *Config) { c.Upstream.BaseURLs = []string{"https://example.com?api_key=secret-value"} }},
+		{"upstream fragment", func(c *Config) { c.Upstream.BaseURLs = []string{"https://example.com#secret-value"} }},
 		{"header injection", func(c *Config) { c.Upstream.APIKey = "secret-value\r\n" }},
 		{"pool size", func(c *Config) { c.Upstream.MaxIdleConns = 0 }},
 		{"backend", func(c *Config) { c.RateLimit.Backend = "secret-value" }},
@@ -240,7 +241,7 @@ func TestEveryLeafHasEnvironmentAndFlagBindings(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if cfg != Defaults() {
+		if !reflect.DeepEqual(cfg, Defaults()) {
 			t.Error("default flag or environment values do not round-trip")
 		}
 	}
@@ -251,7 +252,7 @@ func TestExampleConfigurationMatchesDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg != Defaults() {
+	if !reflect.DeepEqual(cfg, Defaults()) {
 		t.Error("checked-in config.yaml differs from built-in defaults")
 	}
 }

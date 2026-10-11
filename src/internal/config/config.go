@@ -30,18 +30,20 @@ type Server struct {
 	MaxHeaderBytes    int           `yaml:"max_header_bytes"`
 }
 
-// Upstream configures the destination and its HTTP connection pool.
+// Upstream configures routing destinations and their shared HTTP connection pool.
 type Upstream struct {
-	BaseURL               string        `yaml:"base_url"`
-	APIKey                string        `yaml:"api_key"`
-	Organization          string        `yaml:"organization"`
-	Project               string        `yaml:"project"`
-	DialTimeout           time.Duration `yaml:"dial_timeout"`
-	ResponseHeaderTimeout time.Duration `yaml:"response_header_timeout"`
-	IdleConnTimeout       time.Duration `yaml:"idle_conn_timeout"`
-	RequestTimeout        time.Duration `yaml:"request_timeout"`
-	MaxIdleConns          int           `yaml:"max_idle_conns"`
-	MaxIdleConnsPerHost   int           `yaml:"max_idle_conns_per_host"`
+	BaseURLs              []string        `yaml:"base_urls"`
+	Routes                []UpstreamRoute `yaml:"routes"`
+	MaxRoutingBodyBytes   int             `yaml:"max_routing_body_bytes"`
+	APIKey                string          `yaml:"api_key"`
+	Organization          string          `yaml:"organization"`
+	Project               string          `yaml:"project"`
+	DialTimeout           time.Duration   `yaml:"dial_timeout"`
+	ResponseHeaderTimeout time.Duration   `yaml:"response_header_timeout"`
+	IdleConnTimeout       time.Duration   `yaml:"idle_conn_timeout"`
+	RequestTimeout        time.Duration   `yaml:"request_timeout"`
+	MaxIdleConns          int             `yaml:"max_idle_conns"`
+	MaxIdleConnsPerHost   int             `yaml:"max_idle_conns_per_host"`
 }
 
 // RateLimit configures global request and upstream token usage limits.
@@ -124,7 +126,8 @@ func Defaults() Config {
 			MaxHeaderBytes: 1 << 20,
 		},
 		Upstream: Upstream{
-			BaseURL: "https://api.openai.com", DialTimeout: 10 * time.Second,
+			BaseURLs: []string{"https://api.openai.com"}, DialTimeout: 10 * time.Second,
+			Routes: []UpstreamRoute{}, MaxRoutingBodyBytes: 8 << 20,
 			ResponseHeaderTimeout: 60 * time.Second, IdleConnTimeout: 90 * time.Second,
 			MaxIdleConns: 100, MaxIdleConnsPerHost: 100,
 		},
@@ -165,9 +168,8 @@ func (c Config) Validate() error {
 	if c.Server.MaxHeaderBytes <= 0 {
 		return fmt.Errorf("server.max_header_bytes must be positive")
 	}
-	u, err := url.Parse(c.Upstream.BaseURL)
-	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.Opaque != "" {
-		return fmt.Errorf("upstream.base_url must be an absolute HTTP or HTTPS URL without credentials, query, or fragment")
+	if err := c.Upstream.ValidateRouting(); err != nil {
+		return err
 	}
 	for _, field := range []struct{ name, value string }{
 		{"upstream.api_key", c.Upstream.APIKey},

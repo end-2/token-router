@@ -20,6 +20,8 @@ The Go module is at the repository root, and application code lives under `src/`
 
 Echo routes `/v1` and `/v1/*` to the proxy. It forwards the method, body, query, and upstream status code. SSE responses are flushed without buffering the entire response, and client disconnections propagate to the upstream context. When token limiting is enabled, successful `POST` JSON and SSE responses on supported generation paths are inspected for OpenAI-format `usage`, which is passed to the usage recording function. Retrieval and metadata updates are not counted. Forwarded request and response bodies remain unchanged.
 
+Response copying borrows fixed 32 KiB buffers from a shared `sync.Pool`. The standard `httputil.ReverseProxy` flush policy flushes SSE and unknown-length responses immediately, while known-length ordinary responses use HTTP write buffering. Content-only SSE events bypass JSON decoding when they contain no possible usage value; candidate usage events still pass through the JSON decoder.
+
 [`proxy.Handler.ServeHTTP`](../../src/internal/proxy/proxy.go) uses `http.ResponseController.EnableFullDuplex` on HTTP/1.x to allow request body reads and response writes concurrently. This prevents response flushing from closing the incoming body while the upstream transport is still reading it.
 
 [`proxy.router`](../../src/internal/proxy/routing.go) selects a pool from configured destinations using the request `Host` and the JSON body's `model`. Rules with more conditions take precedence, and address arrays with identical conditions are merged into one pool. Each pool's atomic counter distributes concurrent requests round robin. The selected destination is stored in the request context and applied in `ReverseProxy.Rewrite`; all destinations share one transport. Unmatched requests use the default pool, or return `404` if none exists. See [Multiple upstream routing](../reference/configuration.md#multiple-upstream-routing) for configuration and precedence.
@@ -42,7 +44,7 @@ type Limiter interface {
 }
 ```
 
-`Decision` contains the admission result and retry delay. `bucket.New` selects an implementation from configuration. Local memory uses `golang.org/x/time/rate` for request counts and separately maintains token usage balances, checking both limits under the same mutex. Redis uses `go-redis` and atomic Lua scripts. Automatic Redis mutation retries are disabled to avoid duplicate deductions when a request's outcome is unknown.
+`Decision` contains the admission result and retry delay. `bucket.New` selects an implementation from configuration. Local memory uses `golang.org/x/time/rate` for request counts and separately maintains token usage balances. Sixteen account shards let unrelated accounts proceed concurrently; each account's request and token limits are checked together under its shard mutex. Configuration updates and closure acquire every shard in a fixed order. Redis uses `go-redis` and atomic Lua scripts. Automatic Redis mutation retries are disabled to avoid duplicate deductions when a request's outcome is unknown.
 
 `Allow` checks both the request balance and any active token usage balance, deducting only one request unit on admission. `RecordUsage` separately deducts model tokens observed in responses and allows negative balances. Usage is neither estimated nor reserved before requests, so requests in progress can exceed the limit. See [Request count and token usage limits](../reference/configuration.md#request-count-and-token-usage-limits) for extraction rules and constraints.
 
@@ -78,7 +80,9 @@ The metrics listener is separate from the API listener, so its own scrape reques
 
 The application creates per-instance trace, metric, and log providers according to configuration. OTLP HTTP exporters send the three signals to the Collector. Prometheus scraping and OTLP metric export can be enabled independently.
 
-Echo middleware creates server spans, while an `http.RoundTripper` wrapping the upstream transport handles client spans and W3C trace context propagation. A client span ends when the streaming response body finishes or closes. Request completion logs use `slog` with JSON output by default. A valid span in the context adds `trace_id` and `span_id`.
+Echo middleware creates server spans, while an `http.RoundTripper` wrapping the upstream transport handles client spans and W3C trace context propagation. A recording client span ends when the streaming response body finishes or closes. Unsampled spans propagate context without adding a response body wrapper. Request completion logs use `slog` with JSON output by default. A valid span in the context adds `trace_id` and `span_id`.
+
+Disabled OTLP metrics skip metric attribute construction and recording. When tracing, OTLP metrics, and access logging are all inactive, telemetry middleware skips request timing and attribute work while preserving HTTP error handling. Prometheus metrics remain independent of this fast path.
 
 Logs and spans exclude request bodies, authentication headers, queries, and raw URLs. HTTP routes and methods use the same bounded values as metrics. See [OpenTelemetry observability](../operations/observability.md) for collection paths and queries.
 

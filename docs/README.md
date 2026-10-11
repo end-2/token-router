@@ -7,6 +7,7 @@
 ## Development
 
 - [Proxy server development and execution](development/proxy-server.md): Docker builds, execution, linting, unit tests, and Redis connections
+- [Proxy performance measurement](development/performance.md): request pipeline benchmarks, component benchmarks, profiling, and configuration costs
 - [Ginkgo E2E tests](development/end-to-end-tests.md): Docker Compose scenario tests using actual server processes, Redis, and observability components
 - [kind test environment](development/kind-test-environment.md): cluster configuration, commands, smoke tests, and local images
 - [Deployment components](development/deployment-components.md): manifests, installation, and configuration management for Redis and observability components
@@ -20,3 +21,7 @@
 ## Configuration
 
 - [Application configuration](reference/configuration.md): YAML layers, environment variable and CLI precedence, Host and model upstream routing, timeouts, authentication, request counts, and token usage limits
+
+## History
+
+- [Proxy performance optimization](history/proxy-performance-optimization.md): recorded changes to forwarding, routing, usage observation, account identification, rate limiting, and observability

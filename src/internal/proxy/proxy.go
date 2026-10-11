@@ -39,7 +39,7 @@ func WithTransport(wrap func(http.RoundTripper) http.RoundTripper) Option {
 }
 
 // New constructs a handler without opening upstream connections.
-func New(cfg config.Upstream, logger *slog.Logger, options ...Option) (*Handler, error) {
+func New(cfg config.Upstream, transportConfig config.Transport, logger *slog.Logger, options ...Option) (*Handler, error) {
 	routing, err := routing.New(cfg)
 	if err != nil {
 		return nil, err
@@ -48,15 +48,10 @@ func New(cfg config.Upstream, logger *slog.Logger, options ...Option) (*Handler,
 		logger = slog.Default()
 	}
 
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.Proxy = nil
-	transport.DialContext = (&net.Dialer{Timeout: cfg.DialTimeout, KeepAlive: 30 * time.Second}).DialContext
-	transport.TLSHandshakeTimeout = cfg.DialTimeout
-	transport.ResponseHeaderTimeout = cfg.ResponseHeaderTimeout
-	transport.IdleConnTimeout = cfg.IdleConnTimeout
-	transport.MaxIdleConns = cfg.MaxIdleConns
-	transport.MaxIdleConnsPerHost = cfg.MaxIdleConnsPerHost
-	transport.DisableCompression = true
+	transport, err := newTransport(transportConfig)
+	if err != nil {
+		return nil, err
+	}
 
 	handler := &Handler{transport: transport, logger: logger, requestTimeout: cfg.RequestTimeout, router: routing}
 	authorization := "Bearer " + cfg.APIKey

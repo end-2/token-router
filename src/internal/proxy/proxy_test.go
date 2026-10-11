@@ -113,7 +113,7 @@ func TestTransportErrorDoesNotExposeSecrets(t *testing.T) {
 	var logs bytes.Buffer
 	cfg := upstreamConfig(upstream.URL)
 	cfg.APIKey = "private-upstream-key"
-	handler, err := New(cfg, slog.New(slog.NewTextHandler(&logs, nil)))
+	handler, err := New(cfg, testTransportConfig(), slog.New(slog.NewTextHandler(&logs, nil)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,9 +147,10 @@ func TestTimeoutBeforeResponseHeaders(t *testing.T) {
 			}))
 			defer upstream.Close()
 			cfg := upstreamConfig(upstream.URL)
-			cfg.ResponseHeaderTimeout = test.headerTimeout
+			transport := testTransportConfig()
+			transport.ResponseHeaderTimeout = test.headerTimeout
 			cfg.RequestTimeout = test.wholeTimeout
-			handler := newTestHandler(t, cfg)
+			handler := newTestHandlerWithTransport(t, cfg, transport)
 			response := httptest.NewRecorder()
 			handler.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/models", nil))
 			if response.Code != http.StatusGatewayTimeout || !strings.Contains(response.Body.String(), `"code":"upstream_timeout"`) {
@@ -320,7 +321,7 @@ func TestRejectUnsolicitedUpstreamUpgrade(t *testing.T) {
 func TestInvalidUpstreamURL(t *testing.T) {
 	for _, target := range []string{"", "://bad", "file:///tmp/upstream", "https://:443", "https://user:secret@example.com", "https://example.com?key=secret", "https://example.com?", "https://example.com#fragment"} {
 		t.Run(target, func(t *testing.T) {
-			if _, err := New(upstreamConfig(target), nil); err == nil {
+			if _, err := New(upstreamConfig(target), testTransportConfig(), nil); err == nil {
 				t.Fatal("accepted invalid upstream URL")
 			}
 		})
@@ -332,20 +333,29 @@ func upstreamConfig(baseURL string) config.Upstream {
 	if baseURL != "" {
 		baseURLs = append(baseURLs, baseURL)
 	}
-	return config.Upstream{
-		BaseURLs:              baseURLs,
-		MaxRoutingBodyBytes:   8 << 20,
-		DialTimeout:           time.Second,
-		ResponseHeaderTimeout: time.Second,
-		IdleConnTimeout:       time.Second,
-		MaxIdleConns:          10,
-		MaxIdleConnsPerHost:   5,
-	}
+	cfg := config.Defaults().Upstream
+	cfg.BaseURLs = baseURLs
+	return cfg
+}
+
+func testTransportConfig() config.Transport {
+	cfg := config.Defaults().Transport
+	cfg.DialTimeout = time.Second
+	cfg.ResponseHeaderTimeout = time.Second
+	cfg.IdleConnTimeout = time.Second
+	cfg.MaxIdleConns = 10
+	cfg.MaxIdleConnsPerHost = 5
+	return cfg
 }
 
 func newTestHandler(t *testing.T, cfg config.Upstream) *Handler {
 	t.Helper()
-	handler, err := New(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	return newTestHandlerWithTransport(t, cfg, testTransportConfig())
+}
+
+func newTestHandlerWithTransport(t *testing.T, cfg config.Upstream, transport config.Transport) *Handler {
+	t.Helper()
+	handler, err := New(cfg, transport, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatal(err)
 	}

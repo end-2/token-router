@@ -21,7 +21,7 @@ func TestResponseFlushingPolicy(t *testing.T) {
 		{name: "unknown SSE", contentType: "text/event-stream; charset=utf-8", contentLength: -1, wantFlush: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			handler, err := New(upstreamConfig("http://upstream.example"), nil, WithTransport(func(http.RoundTripper) http.RoundTripper {
+			handler, err := New(upstreamConfig("http://upstream.example"), testTransportConfig(), nil, WithTransport(func(http.RoundTripper) http.RoundTripper {
 				return usageTestTransport(func(request *http.Request) (*http.Response, error) {
 					return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {test.contentType}},
 						ContentLength: test.contentLength, Body: io.NopCloser(strings.NewReader("ok")), Request: request}, nil

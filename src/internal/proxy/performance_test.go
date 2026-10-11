@@ -29,7 +29,7 @@ func BenchmarkProxyForward(b *testing.B) {
 			if test.usage {
 				options = append(options, WithUsageRecorder(func(context.Context, int64) {}))
 			}
-			handler, err := New(upstreamConfig("http://upstream.example"), slog.New(slog.DiscardHandler), options...)
+			handler, err := New(upstreamConfig("http://upstream.example"), testTransportConfig(), slog.New(slog.DiscardHandler), options...)
 			if err != nil {
 				b.Fatal(err)
 			}

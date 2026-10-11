@@ -53,7 +53,7 @@ func TestUsageRecorderPreservesProxyExchange(t *testing.T) {
 			cfg := upstreamConfig(upstream.URL + "/prefix")
 			cfg.APIKey = "server-key"
 			type contextKey struct{}
-			handler, err := New(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)),
+			handler, err := New(cfg, testTransportConfig(), slog.New(slog.NewTextHandler(io.Discard, nil)),
 				WithUsageRecorder(func(ctx context.Context, tokens int64) {
 					if ctx.Value(contextKey{}) != "request-value" {
 						t.Error("usage callback lost request context")
@@ -261,7 +261,7 @@ func TestUsageRecorderStreamsAndRecordsBeforeCancellation(t *testing.T) {
 
 func usageTestHandler(t *testing.T, upstreamURL string, record func(context.Context, int64)) *Handler {
 	t.Helper()
-	handler, err := New(upstreamConfig(upstreamURL), slog.New(slog.NewTextHandler(io.Discard, nil)), WithUsageRecorder(record))
+	handler, err := New(upstreamConfig(upstreamURL), testTransportConfig(), slog.New(slog.NewTextHandler(io.Discard, nil)), WithUsageRecorder(record))
 	if err != nil {
 		t.Fatal(err)
 	}

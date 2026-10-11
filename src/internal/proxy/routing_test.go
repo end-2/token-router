@@ -315,7 +315,7 @@ func TestRoutingPreservesRequestContext(t *testing.T) {
 	type contextKey struct{}
 	cfg := upstreamConfig("")
 	cfg.Routes = []config.UpstreamRoute{{Model: "chat", BaseURLs: []string{"127.0.0.1:1"}}}
-	handler, err := New(cfg, nil, WithTransport(func(http.RoundTripper) http.RoundTripper {
+	handler, err := New(cfg, testTransportConfig(), nil, WithTransport(func(http.RoundTripper) http.RoundTripper {
 		return usageTestTransport(func(request *http.Request) (*http.Response, error) {
 			if request.Context().Value(contextKey{}) != "retained" {
 				t.Error("routing lost request context")

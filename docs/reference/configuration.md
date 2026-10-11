@@ -23,13 +23,12 @@ CLI 기본값은 YAML 또는 환경 변수 값을 덮어쓰지 않는다. 명시
 | `upstream` | 고정 목적지 URL, 인증 헤더, 연결 풀과 upstream timeout |
 | `rate_limit` | 활성화 여부, `memory` 또는 `redis` 전략, 요청 수와 토큰 사용량의 초당 보충량과 burst |
 | `rate_limit.redis` | Redis 주소, 인증, DB, 공용 key, TLS와 I/O timeout |
-| `metrics` | Prometheus 활성화 여부, 별도 리스너 주소와 경로 |
-| `log` | `json` 또는 `text` 출력, `debug`, `info`, `warn`, `error` 레벨 |
-| `telemetry` | OpenTelemetry 활성화, service resource와 export 종료 대기 시간 |
-| `telemetry.otlp` | 세 신호가 공유하는 OTLP HTTP base URL과 전송 timeout |
+| `telemetry` | 로그, Prometheus와 OpenTelemetry 설정, service resource와 export 종료 대기 시간 |
+| `telemetry.otlp` | OTLP 전송 활성화, 세 신호가 공유하는 HTTP base URL과 전송 timeout |
 | `telemetry.traces` | trace export 활성화와 root trace sampling 비율 |
-| `telemetry.metrics` | OTLP metric export 활성화와 전송 주기 |
-| `telemetry.logs` | 구조화된 로그의 OTLP export 활성화 |
+| `telemetry.metrics` | 메트릭 활성화와 OTLP 전송 주기 |
+| `telemetry.metrics.prometheus` | Prometheus 활성화 여부, 별도 리스너 주소와 경로 |
+| `telemetry.logs` | 로그 활성화, 로그 레벨과 로컬 출력 형식 |
 
 모든 leaf 설정은 환경 변수와 CLI 인자로 변경할 수 있다. YAML의 점과 밑줄을 환경 변수에서는 밑줄로, CLI에서는 하이픈으로 연결한다.
 
@@ -42,11 +41,17 @@ CLI 기본값은 YAML 또는 환경 변수 값을 덮어쓰지 않는다. 명시
 | `rate_limit.tokens_per_second` | `TOKEN_ROUTER_RATE_LIMIT_TOKENS_PER_SECOND` | `--rate-limit-tokens-per-second` |
 | `rate_limit.token_burst` | `TOKEN_ROUTER_RATE_LIMIT_TOKEN_BURST` | `--rate-limit-token-burst` |
 | `rate_limit.redis.address` | `TOKEN_ROUTER_RATE_LIMIT_REDIS_ADDRESS` | `--rate-limit-redis-address` |
-| `metrics.enabled` | `TOKEN_ROUTER_METRICS_ENABLED` | `--metrics-enabled=false` |
-| `telemetry.enabled` | `TOKEN_ROUTER_TELEMETRY_ENABLED` | `--telemetry-enabled` |
+| `telemetry.otlp.enabled` | `TOKEN_ROUTER_TELEMETRY_OTLP_ENABLED` | `--telemetry-otlp-enabled` |
 | `telemetry.otlp.endpoint` | `TOKEN_ROUTER_TELEMETRY_OTLP_ENDPOINT` | `--telemetry-otlp-endpoint` |
 | `telemetry.traces.sample_ratio` | `TOKEN_ROUTER_TELEMETRY_TRACES_SAMPLE_RATIO` | `--telemetry-traces-sample-ratio` |
+| `telemetry.metrics.enabled` | `TOKEN_ROUTER_TELEMETRY_METRICS_ENABLED` | `--telemetry-metrics-enabled=false` |
 | `telemetry.metrics.export_interval` | `TOKEN_ROUTER_TELEMETRY_METRICS_EXPORT_INTERVAL` | `--telemetry-metrics-export-interval` |
+| `telemetry.metrics.prometheus.enabled` | `TOKEN_ROUTER_TELEMETRY_METRICS_PROMETHEUS_ENABLED` | `--telemetry-metrics-prometheus-enabled=false` |
+| `telemetry.metrics.prometheus.address` | `TOKEN_ROUTER_TELEMETRY_METRICS_PROMETHEUS_ADDRESS` | `--telemetry-metrics-prometheus-address` |
+| `telemetry.metrics.prometheus.path` | `TOKEN_ROUTER_TELEMETRY_METRICS_PROMETHEUS_PATH` | `--telemetry-metrics-prometheus-path` |
+| `telemetry.logs.enabled` | `TOKEN_ROUTER_TELEMETRY_LOGS_ENABLED` | `--telemetry-logs-enabled=false` |
+| `telemetry.logs.level` | `TOKEN_ROUTER_TELEMETRY_LOGS_LEVEL` | `--telemetry-logs-level` |
+| `telemetry.logs.format` | `TOKEN_ROUTER_TELEMETRY_LOGS_FORMAT` | `--telemetry-logs-format` |
 
 `go run ./src/cmd/token-router --help`는 전체 CLI와 대응 환경 변수 이름을 보여준다. 예를 들어 다음 명령은 YAML을 읽은 뒤 환경 변수의 주소, CLI의 burst를 적용한다.
 
@@ -55,7 +60,7 @@ TOKEN_ROUTER_SERVER_ADDRESS=127.0.0.1:8081 \
   go run ./src/cmd/token-router serve --config config.yaml --rate-limit-burst 50
 ```
 
-불리언 인자는 `--metrics-enabled`처럼 값 없이 전달하면 `true`가 된다. `false`를 지정할 때는 `--metrics-enabled=false`처럼 등호를 사용한다. `TOKEN_ROUTER_CONFIG` 또는 `--config`에 빈 경로를 명시하면 오류다.
+불리언 인자는 `--telemetry-metrics-prometheus-enabled`처럼 값 없이 전달하면 `true`가 된다. `false`를 지정할 때는 `--telemetry-metrics-prometheus-enabled=false`처럼 등호를 사용한다. `TOKEN_ROUTER_CONFIG` 또는 `--config`에 빈 경로를 명시하면 오류다.
 
 ## Upstream 경로와 인증
 
@@ -82,9 +87,13 @@ duration 값은 `500ms`, `10s`, `2m`, `0s` 같은 Go duration 문자열을 사�
 
 전체 요청 timeout은 응답을 이미 시작한 SSE에도 적용된다. 응답 헤더를 보낸 뒤 오류가 발생하면 HTTP 상태 코드를 바꿀 수 없으므로 연결을 종료한다.
 
-## OpenTelemetry 설정
+## Telemetry 설정
 
-`telemetry.enabled`의 기본값은 `false`다. 활성화하면 `traces.enabled`, `metrics.enabled`, `logs.enabled`로 각 신호를 선택하며 세 신호의 기본값은 모두 `true`다. `metrics.enabled`는 기존 Prometheus 리스너를 제어하고, `telemetry.metrics.enabled`는 OTLP 전송을 제어한다. 두 설정은 독립적이다.
+관측 설정은 모두 `telemetry` 하위에 둔다. `telemetry.otlp.enabled`는 OTLP 전송만 제어하며 기본값은 `false`다. `telemetry.metrics.enabled`와 `telemetry.logs.enabled`는 각각 메트릭과 로그를 제어하며 기본값은 모두 `true`다. 기본 설정에서는 OTLP exporter를 만들지 않고 Prometheus 리스너와 JSON stderr 로그를 사용한다. OTLP 전송을 켜면 활성화된 신호를 Collector에도 전송한다. `telemetry.traces.enabled`의 기본값은 `true`이며 tracing은 OTLP 전송도 활성화되어 있을 때 동작한다.
+
+Prometheus 리스너는 메트릭이 활성화되어 있을 때 `telemetry.metrics.prometheus.enabled`로 제어하며 기본값은 `true`다. 주소와 경로는 `telemetry.metrics.prometheus.address`, `telemetry.metrics.prometheus.path`로 설정하며 기본값은 `127.0.0.1:9090`, `/metrics`다. `telemetry.otlp.enabled=false`여도 Prometheus를 사용할 수 있다. `telemetry.metrics.enabled=false`이면 Prometheus registry와 리스너, OTLP metric exporter를 모두 생성하지 않는다.
+
+로그 레벨은 `telemetry.logs.level`로 설정하며 `debug`, `info`, `warn`, `error`를 지원한다. 기본값은 `info`다. 로컬 로그는 stderr에 기록하고 `telemetry.logs.format`으로 `json` 또는 `text`를 선택하며 기본값은 `json`이다. 로그 레벨은 로컬 출력과 OTLP 전송에 모두 적용한다. `telemetry.otlp.enabled=false`여도 로컬 로그를 사용할 수 있다. `telemetry.logs.enabled=false`이면 로컬 애플리케이션 로그와 OTLP log export를 모두 비활성화한다.
 
 `telemetry.otlp.endpoint`는 `http://otel-collector:4318` 같은 OTLP HTTP base URL이다. 신호별 `/v1/traces`, `/v1/metrics`, `/v1/logs` 경로는 exporter에서 추가한다. `https`를 사용할 수 있으며 사용자 정보, query와 fragment는 허용하지 않는다. 전송 timeout의 기본값은 `5s`, 메트릭 전송 주기는 `15s`다.
 

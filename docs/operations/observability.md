@@ -1,6 +1,6 @@
 # OpenTelemetry 관측 구성
 
-애플리케이션은 기본적으로 JSON 로그를 stderr에 기록한다. `telemetry.enabled=true`이면 설정에서 선택한 metrics, logs, traces를 OTLP HTTP로 Collector에 전송한다. 기존 `/metrics` Prometheus 엔드포인트도 독립적으로 사용할 수 있다.
+애플리케이션은 기본적으로 JSON 로그를 stderr에 기록한다. `telemetry.otlp.enabled=true`이면 설정에서 선택한 metrics, logs, traces를 OTLP HTTP로 Collector에 전송한다. 기존 `/metrics` Prometheus 엔드포인트도 독립적으로 사용할 수 있다.
 
 ## 수집 경로
 
@@ -24,7 +24,7 @@ Collector와 같은 Kubernetes Namespace에서 다음 환경 변수로 연결한
 
 ```yaml
 env:
-  - name: TOKEN_ROUTER_TELEMETRY_ENABLED
+  - name: TOKEN_ROUTER_TELEMETRY_OTLP_ENABLED
     value: "true"
   - name: TOKEN_ROUTER_TELEMETRY_OTLP_ENDPOINT
     value: "http://otel-collector:4318"
@@ -32,19 +32,19 @@ env:
     value: "token-router"
   - name: TOKEN_ROUTER_TELEMETRY_ENVIRONMENT
     value: "development"
-  - name: TOKEN_ROUTER_LOG_FORMAT
+  - name: TOKEN_ROUTER_TELEMETRY_LOGS_FORMAT
     value: "json"
 ```
 
 이 환경 변수는 프록시 프로세스에 적용한다. Collector와 backend 컴포넌트를 설치하는 것만으로 프록시의 export가 활성화되지는 않는다. 호스트 프로세스에서 Collector의 OTLP HTTP 포트를 `127.0.0.1:14318`로 전달한 경우에는 다음과 같이 실행한다.
 
 ```sh
-TOKEN_ROUTER_TELEMETRY_ENABLED=true \
+TOKEN_ROUTER_TELEMETRY_OTLP_ENABLED=true \
 TOKEN_ROUTER_TELEMETRY_OTLP_ENDPOINT=http://127.0.0.1:14318 \
   go run ./src/cmd/token-router serve
 ```
 
-`telemetry.traces.enabled`, `telemetry.metrics.enabled`, `telemetry.logs.enabled`로 각 신호를 끌 수 있다. `telemetry.enabled=false`이면 OTLP exporter를 만들지 않으며 로컬 로그와 기존 Prometheus 설정은 계속 적용한다. 세부 기본값과 CLI 매핑은 [애플리케이션 설정](../reference/configuration.md)에 있다.
+`telemetry.traces.enabled`, `telemetry.metrics.enabled`, `telemetry.logs.enabled`로 각 신호를 끌 수 있다. 메트릭을 끄면 Prometheus 리스너도 생성하지 않고, 로그를 끄면 로컬 애플리케이션 로그도 기록하지 않는다. `telemetry.otlp.enabled=false`이면 OTLP exporter를 만들지 않으며 `telemetry.logs.level`, `telemetry.logs.format`의 로컬 로그 설정과 `telemetry.metrics.prometheus`의 Prometheus 설정은 계속 적용한다. 세부 기본값과 CLI 매핑은 [애플리케이션 설정](../reference/configuration.md)에 있다.
 
 ## 로그와 trace 연결
 

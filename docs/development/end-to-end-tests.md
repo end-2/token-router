@@ -60,7 +60,7 @@ runner는 일반 빌드에서 생성한 실행 파일을 사용하고 Ginkgo 테
 | 민감한 요청 정보 | API key, query 값, 요청 본문이 수집한 trace, Loki 로그와 JSON stderr에 포함되지 않는지 확인 |
 | 개별 signal 설정 | metrics만, traces만, logs만 활성화하고 나머지 backend에 해당 데이터가 없는지 확인 (3개 table entry) |
 | 오류 trace | upstream `503`일 때 server span과 client span이 오류 상태로 저장되는지 확인 |
-| Telemetry 비활성화 | OTLP 데이터를 내보내지 않으면서 JSON access log와 기존 Prometheus 리스너를 유지하는지 확인 |
+| OTLP 전송 비활성화 | OTLP 데이터를 내보내지 않으면서 JSON access log와 기존 Prometheus 리스너를 유지하는지 확인 |
 | OTLP rate limit 메트릭 | 허용과 거절 counter 및 HTTP `429` counter를 Prometheus에서 확인 |
 | 종료 시 telemetry flush | SSE 응답을 종료할 때 최종 span, log와 export interval이 `1h`인 메트릭까지 backend에 전달되는지 확인 |
 

@@ -33,7 +33,7 @@ grafana:3000 -> prometheus:9090, loki:3100, tempo:3200
 
 ```yaml
 env:
-  - name: TOKEN_ROUTER_TELEMETRY_ENABLED
+  - name: TOKEN_ROUTER_TELEMETRY_OTLP_ENABLED
     value: "true"
   - name: TOKEN_ROUTER_TELEMETRY_OTLP_ENDPOINT
     value: http://otel-collector:4318

@@ -29,7 +29,7 @@ docker run --rm --stop-timeout 40 \
 
 실행 이미지는 CA 인증서와 실행 파일, 기본 [`config.yaml`](../../config.yaml)을 포함하며 UID와 GID `65532`로 실행한다. 기본 작업 디렉토리는 `/app`, 기본 명령은 `serve`다. `-v` 옵션은 저장소의 설정 파일을 이미지의 기본 설정 위치에 마운트한다. `-e TOKEN_ROUTER_UPSTREAM_API_KEY`는 같은 이름의 호스트 환경 변수를 전달한다. upstream API key가 없으면 클라이언트 요청의 `Authorization`을 사용한다.
 
-이미지는 `TOKEN_ROUTER_SERVER_ADDRESS=:8080`과 `TOKEN_ROUTER_METRICS_ADDRESS=:9090`을 설정해 컨테이너 외부에서 연결할 수 있게 한다. 이 환경 변수는 YAML의 주소보다 우선하므로 주소를 변경하려면 `docker run -e`나 CLI 인자로 재정의한다. 위 명령은 호스트 포트를 `127.0.0.1`에만 공개한다.
+이미지는 `TOKEN_ROUTER_SERVER_ADDRESS=:8080`과 `TOKEN_ROUTER_TELEMETRY_METRICS_PROMETHEUS_ADDRESS=:9090`을 설정해 컨테이너 외부에서 연결할 수 있게 한다. 이 환경 변수는 YAML의 주소보다 우선하므로 주소를 변경하려면 `docker run -e`나 CLI 인자로 재정의한다. 위 명령은 호스트 포트를 `127.0.0.1`에만 공개한다.
 
 `validate`는 설정 구문과 값만 검사하며 Redis나 upstream 연결은 검사하지 않는다. `tests/kind/config.yaml`은 애플리케이션 설정과 별개의 kind 클러스터 설정이다.
 
@@ -106,6 +106,6 @@ TOKEN_ROUTER_TEST_REDIS_ADDR=127.0.0.1:16379 \
 
 컨테이너에서는 실행 파일이 PID 1로 신호를 받는다. Docker의 종료 대기 시간은 `server.shutdown_timeout`과 `telemetry.shutdown_timeout`의 합보다 길게 설정한다. 위 실행 예시는 기본 합계인 35초보다 긴 `--stop-timeout 40`을 사용한다.
 
-OpenTelemetry export는 `telemetry.enabled=true`로 활성화한다. 실행 예시와 Collector 연결 방법은 [OpenTelemetry 관측 구성](../operations/observability.md)에 있다.
+OpenTelemetry export는 `telemetry.otlp.enabled=true`로 활성화한다. 실행 예시와 Collector 연결 방법은 [OpenTelemetry 관측 구성](../operations/observability.md)에 있다.
 
 설정은 시작할 때 읽는다. YAML 또는 환경 변수 값을 바꾸면 프로세스를 재시작해야 한다.

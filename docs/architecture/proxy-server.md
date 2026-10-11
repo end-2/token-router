@@ -58,7 +58,7 @@ type Limiter interface {
 
 `route`는 `/v1/*` 같은 등록된 route이고 매칭되지 않은 경로는 `unmatched`로 기록한다. 알 수 없는 HTTP 메서드는 `OTHER`로 기록해 임의 입력에 따른 label 증가를 막는다. API key, 사용자 식별자와 raw URL은 label에 포함하지 않는다. 스트림 중단 후에는 이미 전송한 HTTP 상태가 기록될 수 있으므로 상태 코드만으로 스트림 완료를 판단할 수 없다.
 
-메트릭 리스너는 API 리스너와 분리되어 자체 scrape 요청을 API 메트릭에 포함하지 않는다. `metrics.enabled=false`이면 메트릭 registry와 리스너를 생성하지 않는다.
+메트릭 리스너는 API 리스너와 분리되어 자체 scrape 요청을 API 메트릭에 포함하지 않는다. `telemetry.metrics.enabled=false` 또는 `telemetry.metrics.prometheus.enabled=false`이면 Prometheus registry와 리스너를 생성하지 않는다.
 
 ## OpenTelemetry와 JSON 로그
 
